@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from 'react';
-import * as PIXI from 'pixi.js';
 
 interface Room {
   id: string;
@@ -8,7 +7,7 @@ interface Room {
   y: number;
   width: number;
   height: number;
-  color: number;
+  color: string;
   status: 'idle' | 'working' | 'error';
   taskCount: number;
 }
@@ -17,130 +16,138 @@ const AgentHQDashboard: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [zoom, setZoom] = useState(1);
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
-  const pixiAppRef = useRef<PIXI.Application | null>(null);
-  const mainContainerRef = useRef<PIXI.Container | null>(null);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
   const rooms: Room[] = [
-    { id: 'hub', name: 'Central Hub', x: 400, y: 300, width: 120, height: 120, color: 0x00d4ff, status: 'working', taskCount: 12 },
-    { id: 'code', name: 'Code Lab', x: 200, y: 150, width: 100, height: 100, color: 0x00ff41, status: 'idle', taskCount: 0 },
-    { id: 'ads', name: 'Ads Studio', x: 600, y: 150, width: 100, height: 100, color: 0xff006e, status: 'working', taskCount: 3 },
-    { id: 'trading', name: 'Trading Desk', x: 200, y: 450, width: 100, height: 100, color: 0xffa500, status: 'working', taskCount: 4 },
-    { id: 'social', name: 'Social Chamber', x: 600, y: 450, width: 100, height: 100, color: 0x8B5CF6, status: 'working', taskCount: 2 },
-    { id: 'revify', name: 'Revify HQ', x: 400, y: 450, width: 100, height: 100, color: 0x3B82F6, status: 'working', taskCount: 2 },
-    { id: 'learning', name: 'Learning Room', x: 400, y: 50, width: 100, height: 100, color: 0x00ff41, status: 'idle', taskCount: 1 },
+    { id: 'hub', name: 'Central Hub', x: 400, y: 300, width: 120, height: 120, color: '#00d4ff', status: 'working', taskCount: 12 },
+    { id: 'code', name: 'Code Lab', x: 200, y: 150, width: 100, height: 100, color: '#00ff41', status: 'idle', taskCount: 0 },
+    { id: 'ads', name: 'Ads Studio', x: 600, y: 150, width: 100, height: 100, color: '#ff006e', status: 'working', taskCount: 3 },
+    { id: 'trading', name: 'Trading Desk', x: 200, y: 450, width: 100, height: 100, color: '#ffa500', status: 'working', taskCount: 4 },
+    { id: 'social', name: 'Social Chamber', x: 600, y: 450, width: 100, height: 100, color: '#8B5CF6', status: 'working', taskCount: 2 },
+    { id: 'revify', name: 'Revify HQ', x: 400, y: 450, width: 100, height: 100, color: '#3B82F6', status: 'working', taskCount: 2 },
+    { id: 'learning', name: 'Learning Room', x: 400, y: 50, width: 100, height: 100, color: '#00ff41', status: 'idle', taskCount: 1 },
   ];
 
   useEffect(() => {
     if (!canvasRef.current) return;
 
-    const pixiApp = new PIXI.Application({
-      canvas: canvasRef.current,
-      width: 1000,
-      height: 700,
-      backgroundColor: 0x0a0a0a,
-      antialias: true,
-    });
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
 
-    pixiAppRef.current = pixiApp;
+    // Set canvas size
+    canvas.width = canvas.offsetWidth;
+    canvas.height = canvas.offsetHeight;
 
-    const mainContainer = new PIXI.Container();
-    mainContainerRef.current = mainContainer;
-    pixiApp.stage.addChild(mainContainer);
+    // Draw function
+    const draw = () => {
+      // Clear canvas
+      ctx.fillStyle = '#0a0a0a';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Draw hallways
-    const hallwayGraphics = new PIXI.Graphics();
-    hallwayGraphics.lineStyle({ width: 2, color: 0x00d4ff, alpha: 0.2 });
+      ctx.save();
+      ctx.translate(canvas.width / 2 + pan.x, canvas.height / 2 + pan.y);
+      ctx.scale(zoom, zoom);
+      ctx.translate(-canvas.width / 2, -canvas.height / 2);
 
-    const hubX = 460;
-    const hubY = 360;
-
-    rooms.slice(1).forEach((room) => {
-      hallwayGraphics.moveTo(hubX, hubY);
-      hallwayGraphics.lineTo(room.x + room.width / 2, room.y + room.height / 2);
-    });
-
-    mainContainer.addChild(hallwayGraphics);
-
-    // Draw rooms
-    rooms.forEach((room) => {
-      const roomGraphics = new PIXI.Graphics();
-
-      // Glow effect
-      if (room.status === 'working') {
-        const glowGraphics = new PIXI.Graphics();
-        glowGraphics.lineStyle({ width: 3, color: room.color, alpha: 0.4 });
-        glowGraphics.drawRect(room.x - 8, room.y - 8, room.width + 16, room.height + 16);
-        mainContainer.addChild(glowGraphics);
-
-        // Animate glow
-        pixiApp.ticker.add(() => {
-          glowGraphics.alpha = 0.2 + Math.sin(Date.now() / 500) * 0.2;
-        });
-      }
-
-      // Room border
-      roomGraphics.lineStyle({ width: room.status === 'working' ? 3 : 1, color: room.color, alpha: 1 });
-      roomGraphics.beginFill(room.color, 0.08);
-      roomGraphics.drawRect(room.x, room.y, room.width, room.height);
-      roomGraphics.endFill();
-
-      // Room name
-      const text = new PIXI.Text(room.name, {
-        fontSize: 13,
-        fontFamily: 'monospace',
-        fill: room.color,
+      // Draw hallways
+      ctx.strokeStyle = 'rgba(0, 212, 255, 0.2)';
+      ctx.lineWidth = 2;
+      rooms.slice(1).forEach((room) => {
+        ctx.beginPath();
+        ctx.moveTo(rooms[0].x + rooms[0].width / 2, rooms[0].y + rooms[0].height / 2);
+        ctx.lineTo(room.x + room.width / 2, room.y + room.height / 2);
+        ctx.stroke();
       });
-      text.x = room.x + room.width / 2 - text.width / 2;
-      text.y = room.y + room.height / 2 - 15;
-      roomGraphics.addChild(text);
 
-      // Task count badge
-      if (room.taskCount > 0) {
-        const badge = new PIXI.Text(`${room.taskCount}`, {
-          fontSize: 11,
-          fontFamily: 'monospace',
-          fill: 0xff006e,
-          fontWeight: 'bold',
-        });
-        badge.x = room.x + room.width - 20;
-        badge.y = room.y + 5;
-        roomGraphics.addChild(badge);
-      }
+      // Draw rooms
+      rooms.forEach((room) => {
+        // Draw glow
+        if (room.status === 'working') {
+          ctx.strokeStyle = room.color + '66';
+          ctx.lineWidth = 3;
+          ctx.strokeRect(room.x - 8, room.y - 8, room.width + 16, room.height + 16);
+        }
 
-      // Status indicator
-      const statusText = new PIXI.Text(room.status === 'working' ? '●' : '○', {
-        fontSize: 16,
-        fill: room.status === 'working' ? 0x00ff41 : 0x666666,
+        // Draw room
+        ctx.strokeStyle = room.color;
+        ctx.lineWidth = room.status === 'working' ? 3 : 1;
+        ctx.fillStyle = room.color + '14';
+        ctx.fillRect(room.x, room.y, room.width, room.height);
+        ctx.strokeRect(room.x, room.y, room.width, room.height);
+
+        // Draw name
+        ctx.fillStyle = room.color;
+        ctx.font = '13px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(room.name, room.x + room.width / 2, room.y + room.height / 2);
+
+        // Draw status indicator
+        ctx.fillStyle = room.status === 'working' ? '#00ff41' : '#666666';
+        ctx.beginPath();
+        ctx.arc(room.x + 10, room.y + room.height - 10, 4, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Draw task count
+        if (room.taskCount > 0) {
+          ctx.fillStyle = '#ff006e';
+          ctx.font = 'bold 11px monospace';
+          ctx.textAlign = 'right';
+          ctx.fillText(room.taskCount.toString(), room.x + room.width - 8, room.y + 15);
+        }
       });
-      statusText.x = room.x + 8;
-      statusText.y = room.y + room.height - 20;
-      roomGraphics.addChild(statusText);
 
-      roomGraphics.interactive = true;
-      roomGraphics.buttonMode = true;
-      roomGraphics.on('click', () => setSelectedRoom(room));
+      ctx.restore();
+    };
 
-      mainContainer.addChild(roomGraphics);
-    });
+    draw();
 
-    // Zoom controls
-    const onWheel = (e: WheelEvent) => {
+    // Zoom handler
+    const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
       const factor = e.deltaY > 0 ? 0.9 : 1.1;
-      const newZoom = Math.max(0.5, Math.min(3, zoom * factor));
-      setZoom(newZoom);
-      if (mainContainer) {
-        mainContainer.scale.set(newZoom, newZoom);
-      }
+      setZoom((z) => Math.max(0.5, Math.min(3, z * factor)));
     };
 
-    canvasRef.current.addEventListener('wheel', onWheel, { passive: false });
+    // Pan handlers
+    const handleMouseDown = (e: MouseEvent) => {
+      setIsDragging(true);
+      setDragStart({ x: e.clientX, y: e.clientY });
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDragging) return;
+      const dx = e.clientX - dragStart.x;
+      const dy = e.clientY - dragStart.y;
+      setPan((p) => ({ x: p.x + dx, y: p.y + dy }));
+      setDragStart({ x: e.clientX, y: e.clientY });
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+    };
+
+    canvas.addEventListener('wheel', handleWheel, { passive: false });
+    canvas.addEventListener('mousedown', handleMouseDown);
+    canvas.addEventListener('mousemove', handleMouseMove);
+    canvas.addEventListener('mouseup', handleMouseUp);
+
+    // Animation loop
+    const animate = () => {
+      draw();
+      requestAnimationFrame(animate);
+    };
+    animate();
 
     return () => {
-      canvasRef.current?.removeEventListener('wheel', onWheel);
-      pixiApp.destroy(true, true);
+      canvas.removeEventListener('wheel', handleWheel);
+      canvas.removeEventListener('mousedown', handleMouseDown);
+      canvas.removeEventListener('mousemove', handleMouseMove);
+      canvas.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [zoom]);
+  }, [zoom, pan, isDragging, dragStart, selectedRoom]);
 
   return (
     <div className="w-full h-screen bg-black flex flex-col">
@@ -155,14 +162,33 @@ const AgentHQDashboard: React.FC = () => {
 
       {/* Canvas */}
       <div className="flex-1 relative overflow-hidden bg-black">
-        <canvas ref={canvasRef} className="w-full h-full" />
+        <canvas
+          ref={canvasRef}
+          className="w-full h-full cursor-grab active:cursor-grabbing"
+          onClick={(e) => {
+            const rect = canvasRef.current?.getBoundingClientRect();
+            if (!rect) return;
+            const x = (e.clientX - rect.left) / zoom - rect.width / 2 / zoom + rect.width / 2;
+            const y = (e.clientY - rect.top) / zoom - rect.height / 2 / zoom + rect.height / 2;
+            
+            const clicked = rooms.find(
+              (r) => x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height
+            );
+            setSelectedRoom(clicked || null);
+          }}
+        />
 
         {/* Detail Panel */}
         {selectedRoom && (
           <div className="absolute bottom-6 right-6 w-80 bg-gray-950 border-2 border-cyan-500 p-5 font-mono text-sm shadow-2xl rounded-lg">
             <div className="flex justify-between items-center mb-4 pb-3 border-b border-gray-700">
               <span className="text-cyan-500 font-bold text-base">{selectedRoom.name}</span>
-              <button onClick={() => setSelectedRoom(null)} className="text-gray-500 hover:text-gray-300 text-xl">✕</button>
+              <button
+                onClick={() => setSelectedRoom(null)}
+                className="text-gray-500 hover:text-gray-300 text-xl"
+              >
+                ✕
+              </button>
             </div>
 
             <div className="space-y-3 text-gray-300">
