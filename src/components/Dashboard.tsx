@@ -29,6 +29,10 @@ const Dashboard: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartRef = useRef({ x: 0, y: 0 });
+  const panStartRef = useRef({ x: 0, y: 0 });
+  const draggedRef = useRef(false);
   const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [communicationFlows, setCommunicationFlows] = useState<CommunicationFlow[]>([]);
@@ -80,8 +84,13 @@ const Dashboard: React.FC = () => {
     ctx.fillStyle = '#0a0a0a';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+    // Apply zoom + pan transform to all world-space drawing
+    ctx.save();
+    ctx.translate(pan.x, pan.y);
+    ctx.scale(zoom, zoom);
+
     // Draw grid
-    drawGrid(ctx, canvas.width, canvas.height);
+    drawGrid(ctx, canvas.width, canvas.height, pan, zoom);
 
     // Draw hallways (connections between rooms)
     drawHallways(ctx, rooms);
@@ -95,25 +104,41 @@ const Dashboard: React.FC = () => {
     // Draw labels
     drawLabels(ctx, rooms);
 
-    // Draw stats panel
+    ctx.restore();
+
+    // Draw stats panel (screen space, unaffected by zoom/pan)
     drawStatsPanel(ctx, canvas.width, canvas.height);
   }, [zoom, pan, selectedRoom, communicationFlows]);
 
-  const drawGrid = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
+  const drawGrid = (
+    ctx: CanvasRenderingContext2D,
+    width: number,
+    height: number,
+    pan: { x: number; y: number },
+    zoom: number
+  ) => {
     ctx.strokeStyle = 'rgba(0, 212, 255, 0.1)';
-    ctx.lineWidth = 1;
+    ctx.lineWidth = 1 / zoom;
 
     const gridSize = 50;
-    for (let x = 0; x < width; x += gridSize) {
+
+    // Visible region in world coordinates so the grid fills the viewport
+    // regardless of the current zoom/pan.
+    const left = -pan.x / zoom;
+    const top = -pan.y / zoom;
+    const right = (width - pan.x) / zoom;
+    const bottom = (height - pan.y) / zoom;
+
+    for (let x = Math.floor(left / gridSize) * gridSize; x < right; x += gridSize) {
       ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, height);
+      ctx.moveTo(x, top);
+      ctx.lineTo(x, bottom);
       ctx.stroke();
     }
-    for (let y = 0; y < height; y += gridSize) {
+    for (let y = Math.floor(top / gridSize) * gridSize; y < bottom; y += gridSize) {
       ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(width, y);
+      ctx.moveTo(left, y);
+      ctx.lineTo(right, y);
       ctx.stroke();
     }
   };
@@ -266,12 +291,19 @@ const Dashboard: React.FC = () => {
 
   // Canvas click handler
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    // Ignore the click that ends a pan drag so panning doesn't toggle a room.
+    if (draggedRef.current) {
+      draggedRef.current = false;
+      return;
+    }
+
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    // Convert screen coordinates to world coordinates (undo pan + zoom).
+    const x = (e.clientX - rect.left - pan.x) / zoom;
+    const y = (e.clientY - rect.top - pan.y) / zoom;
 
     // Check which room was clicked
     rooms.forEach(room => {
@@ -281,11 +313,53 @@ const Dashboard: React.FC = () => {
     });
   };
 
-  // Zoom with scroll
+  // Begin pan drag
+  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    setIsDragging(true);
+    draggedRef.current = false;
+    dragStartRef.current = { x: e.clientX, y: e.clientY };
+    panStartRef.current = { ...pan };
+  };
+
+  // Pan while dragging
+  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isDragging) return;
+    const dx = e.clientX - dragStartRef.current.x;
+    const dy = e.clientY - dragStartRef.current.y;
+    // Treat small movements as a click, not a drag.
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+      draggedRef.current = true;
+    }
+    setPan({ x: panStartRef.current.x + dx, y: panStartRef.current.y + dy });
+  };
+
+  // End pan drag
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  // Zoom with scroll, keeping the point under the cursor anchored
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const cursorX = e.clientX - rect.left;
+    const cursorY = e.clientY - rect.top;
+
     const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    setZoom(Math.max(0.5, Math.min(3, zoom * delta)));
+    const newZoom = Math.max(0.5, Math.min(3, zoom * delta));
+    if (newZoom === zoom) return;
+
+    // Keep the world point under the cursor fixed while zooming.
+    const worldX = (cursorX - pan.x) / zoom;
+    const worldY = (cursorY - pan.y) / zoom;
+    setPan({
+      x: cursorX - worldX * newZoom,
+      y: cursorY - worldY * newZoom,
+    });
+    setZoom(newZoom);
   };
 
   return (
@@ -302,7 +376,11 @@ const Dashboard: React.FC = () => {
           ref={canvasRef}
           onClick={handleCanvasClick}
           onWheel={handleWheel}
-          className="w-full h-full cursor-crosshair"
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+          className={`w-full h-full ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
         />
 
         {/* Info Panel */}
@@ -322,6 +400,7 @@ const Dashboard: React.FC = () => {
         <div className="absolute top-6 right-6 bg-black/80 border-2 border-magenta-500/50 p-3 rounded space-y-2 text-sm text-magenta-300">
           <p>🖱️ Click rooms for details</p>
           <p>🔍 Scroll to zoom</p>
+          <p>✋ Drag to pan</p>
           <p>Zoom: {(zoom * 100).toFixed(0)}%</p>
         </div>
       </div>
