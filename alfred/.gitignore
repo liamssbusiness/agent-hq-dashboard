@@ -1,0 +1,5 @@
+# Never commit secrets or the brain's memory database
+.env
+*.db
+__pycache__/
+*.pyc

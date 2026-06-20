@@ -1,0 +1,18 @@
+# Alternative one-click host (Render). Pick ONE of Railway/Render/Fly.
+services:
+  - type: web
+    name: alfred-brain
+    runtime: docker
+    dockerfilePath: ./alfred/brain/Dockerfile
+    plan: starter            # ~$7/mo, always-on
+    disk:
+      name: alfred-data
+      mountPath: /data       # persists the memory DB
+      sizeGB: 1
+    envVars:
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: ALFRED_ACCESS_TOKEN
+        sync: false
+      - key: ALFRED_MONTHLY_BUDGET_USD
+        value: "100"
