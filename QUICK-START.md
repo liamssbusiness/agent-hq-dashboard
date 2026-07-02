@@ -46,7 +46,7 @@ https://github.com/liamssbusiness/agent-hq-dashboard
 Once repo is created, Alfred runs:
 
 ```bash
-cd C:\Users\the10\Downloads\agent-hq-dashboard
+cd agent-hq-dashboard
 git remote add origin https://github.com/liamssbusiness/agent-hq-dashboard.git
 git push -u origin main
 ```
@@ -212,6 +212,6 @@ agent-hq-dashboard/
 ## Questions?
 
 GitHub repo: https://github.com/liamssbusiness/agent-hq-dashboard  
-Project folder: C:\Users\the10\Downloads\agent-hq-dashboard\
+Project folder: your local project folder
 
 Everything is ready. Just need the signal to push! 🚀

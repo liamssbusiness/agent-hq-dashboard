@@ -1,5 +1,21 @@
+# Dependencies
 node_modules
+
+# Build output (built by CI / hosting provider — never commit)
+dist
+
+# Environment & secrets — never commit these
 .env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+credentials*.json
+secrets*
+
+# Local tooling
+.vercel
+.netlify
 .DS_Store
 *.log
-.vercel

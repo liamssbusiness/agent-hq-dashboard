@@ -8,11 +8,13 @@ import subprocess
 import sys
 import os
 
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
 def run_command(cmd, description):
     print(f"\n{'='*70}")
     print(f"🔄 {description}")
     print(f"{'='*70}")
-    result = subprocess.run(cmd, shell=True, cwd=r"C:\Users\the10\Downloads\agent-hq-dashboard")
+    result = subprocess.run(cmd, shell=True, cwd=SCRIPT_DIR)
     if result.returncode != 0:
         print(f"❌ Failed: {description}")
         return False
@@ -46,7 +48,7 @@ def main():
         print("❌ Git not found. Install from https://git-scm.com")
         return False
     
-    os.chdir(r"C:\Users\the10\Downloads\agent-hq-dashboard")
+    os.chdir(SCRIPT_DIR)
     
     # Initialize git
     if not run_command("git init", "Initializing Git repository"):
@@ -80,7 +82,7 @@ def main():
     """)
     
     print("\n✓ Git setup complete!")
-    print("📁 Project location: C:\\Users\\the10\\Downloads\\agent-hq-dashboard")
+    print(f"📁 Project location: {SCRIPT_DIR}")
     print("📝 Next: Follow the manual steps above via GitHub UI")
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@
 ### Step 1: Initialize Git
 
 ```bash
-cd C:\Users\the10\Downloads\agent-hq-dashboard
+cd agent-hq-dashboard
 git init
 git add .
 git commit -m "Initial Agent HQ dashboard"

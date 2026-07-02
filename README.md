@@ -1,243 +1,76 @@
----
-title: Agent HQ Dashboard — Ready on Vercel
-date: 2026-05-20
-status: DEPLOYMENT READY
----
+# Agent HQ Dashboard
 
-# Agent HQ Dashboard — Live Mock-Up Ready
+A neon, game-style control-center dashboard for a personal multi-agent AI system.
+Seven color-coded "rooms" (agents) connected by glowing hallways, with live
+communication flows, zoom/pan navigation, and per-room detail panels.
 
-## ✅ WHAT I BUILT
+**Live repo:** https://github.com/liamssbusiness/agent-hq-dashboard
 
-A fully functional, interactive mock-up of your multi-agent dashboard that's **ready to deploy to Vercel in 5 minutes**.
+> Currently the dashboard renders **mock data**. The plan for wiring it to real
+> agents lives in [`docs/AGENTIC-WORKFLOW-PLAN.md`](docs/AGENTIC-WORKFLOW-PLAN.md),
+> and the agent memory design lives in [`docs/MEMORY-SYSTEM.md`](docs/MEMORY-SYSTEM.md).
 
-### Features Include:
+## Rooms
 
-✓ **7 Rooms Visible at Once**
-  - Central Hub (cyan)
-  - Code Lab (green)
-  - Ads Studio (magenta)
-  - Trading Desk (orange)
-  - Social Chamber (purple)
-  - Revify HQ (blue)
-  - Learning Room (green)
+| Room | Color | Role |
+|---|---|---|
+| Central Hub | cyan | Orchestrator — routes tasks and messages |
+| Code Lab | green | Software/dev agent |
+| Ads Studio | magenta | Ad campaign drafting (human-approved) |
+| Trading Desk | orange | Market analysis / paper trading only |
+| Social Chamber | purple | Social content drafting (human-approved) |
+| Revify HQ | blue | Product/business operations |
+| Learning Room | green | Research and study agent |
 
-✓ **Hallways Connecting Rooms**
-  - Shows agent communication paths
-  - Glowing cyan lines between rooms
+## Features
 
-✓ **Interactive Rooms**
-  - Click any room to see details
-  - Task count displayed
-  - Status indicator (● working or ○ idle)
-  - Memory usage shown
+- Canvas-rendered map of all rooms with hallway connections
+- Animated communication flows with message counts
+- Click a room for status, task, token, and cost details
+- Smooth zoom (scroll / pinch) and drag-to-pan
+- Mobile responsive, dark sci-fi aesthetic
 
-✓ **Infinite Zoom**
-  - Scroll wheel to zoom in/out (0.5x to 3x)
-  - Click and drag to pan around
-  - Works perfectly on mobile (pinch to zoom)
+Two standalone demo pages ship in [`public/`](public/) and deploy alongside the
+app: [`/dashboard.html`](public/dashboard.html) (pure-HTML dashboard) and
+[`/simple.html`](public/simple.html). A static trading-dashboard mock lives at
+[`trading-dashboard-full.html`](trading-dashboard-full.html).
 
-✓ **Neon Aesthetic**
-  - Dark background (#0a0a0a)
-  - Color-coded rooms
-  - Glowing animations on active rooms
-  - Futuristic sci-fi vibe
-
-✓ **Mobile Responsive**
-  - Works on phone, tablet, desktop
-  - Touch controls for zoom/pan
-  - Readable on small screens
-
----
-
-## 📱 VIEW ON YOUR PHONE RIGHT NOW
-
-### Option 1: Deploy to Vercel (Recommended)
-
-**Time: 5 minutes**
-
-1. Go to https://vercel.com (sign up with GitHub)
-2. Go to https://github.com/new (create new repo)
-3. Name it: `agent-hq-dashboard`
-4. Push the code:
-   ```bash
-   cd C:\Users\the10\Downloads\agent-hq-dashboard
-   git init
-   git add .
-   git commit -m "Initial dashboard"
-   git remote add origin https://github.com/YOUR_USERNAME/agent-hq-dashboard.git
-   git branch -M main
-   git push -u origin main
-   ```
-5. Go to https://vercel.com/import
-6. Select your GitHub repo
-7. Click "Deploy"
-8. Wait 2-3 minutes
-9. You get a live URL like: `https://agent-hq-dashboard-xxx.vercel.app`
-10. Open on your phone and start tweaking!
-
----
-
-### Option 2: Alfred Deploys for You
-
-Just give me:
-- Your GitHub username
-- A GitHub personal access token (from settings → developer settings)
-
-I'll push everything and deploy to Vercel automatically.
-
----
-
-### Option 3: Local Test First
-
-When home with your computer:
+## Development
 
 ```bash
-cd C:\Users\the10\Downloads\agent-hq-dashboard
-npm install
-npm run dev
+npm ci
+npm run dev        # http://localhost:3000
+npm run typecheck  # TypeScript checks
+npm run build      # production build → dist/
 ```
 
-Then open http://localhost:3000 to preview locally.
+Requires Node 20.19+ (Node 22 recommended).
 
----
+## Deployment
 
-## 🎮 WHAT YOU CAN DO WITH THE MOCK-UP
+`dist/` is **not** committed — every host builds from source:
 
-**View & Interact:**
-- Zoom in/out with scroll wheel
-- Pan by clicking and dragging
-- Click any room to see its details
-- See task counts and status
+- **GitHub Pages:** push to `main`; `.github/workflows/deploy.yml` builds and deploys.
+- **Vercel:** import the repo at https://vercel.com/import (framework: Vite). `vercel.json` sets build config and security headers.
+- **Netlify:** import the repo; `netlify.toml` handles the rest.
 
-**What You Can Tweak:**
-- Room positions (move them around)
-- Room sizes (make some bigger/smaller)
-- Colors (change hex values)
-- Room names
-- Animation speeds
-- Task counts
-- Detail panel layout
+## Security notes
 
-**Just tell Alfred:** "Change Ads Studio to magenta with 5 tasks" → Done instantly!
+- Never commit secrets. `.gitignore` blocks `.env*`, keys, and credential files.
+- Never paste GitHub tokens or API keys into chats or issues. Use environment
+  variables or your platform's secret manager.
+- Deploy scripts never force-push.
 
----
+## Tech stack
 
-## 📊 PROJECT STRUCTURE
-
-```
-agent-hq-dashboard/
-├── package.json          # Dependencies
-├── vite.config.ts        # Build config
-├── tailwind.config.js    # Styling config
-├── index.html            # Entry point
-├── DEPLOY.md             # Deployment guide
-├── deploy.py             # Automation script
-└── src/
-    ├── main.tsx          # React entry
-    ├── App.tsx           # Main component
-    ├── index.css         # Global styles
-    └── components/
-        └── Dashboard.tsx # Main dashboard component
-```
-
----
-
-## 🚀 DEPLOYMENT STEPS (SIMPLEST)
-
-### Via Vercel Web UI (Easiest from Phone)
-
-1. GitHub account: https://github.com/signup
-2. Vercel account: https://vercel.com/signup (use GitHub)
-3. Create GitHub repo: https://github.com/new
-4. Push code to GitHub (instructions in DEPLOY.md)
-5. Vercel import: https://vercel.com/import
-6. Select repo → Deploy → Done in 2 minutes
-
-Your dashboard is now live and shareable!
-
----
-
-## 📝 NEXT: REAL AGENT DATA
-
-Once you're happy with the mock-up design:
-
-1. Alfred connects to your Hermes daemon via WebSocket
-2. Real agent state flows into the dashboard
-3. Rooms show live task counts, memory usage
-4. Animations update in real-time
-5. You can send commands directly to agents
-
-This dashboard becomes your **Agent HQ control center**.
-
----
-
-## 🎯 IMMEDIATE NEXT STEPS
-
-**Right now (on your phone):**
-1. Tell Alfred: GitHub username + personal token (or just GitHub username if you want me to handle it)
-2. I deploy to Vercel
-3. You get a live URL
-4. Click it → See the mock-up on your phone
-
-**Then:**
-1. Look at the design
-2. Tell me what to change
-3. I update it instantly
-4. Refresh the page to see changes
-5. Repeat until perfect
-
-**Finally:**
-1. Connect to live Hermes daemon
-2. Dashboard goes fully operational
-3. Control all your agents from one place
-
----
-
-## 📂 FILES LOCATION
-
-All code: `C:\Users\the10\Downloads\agent-hq-dashboard\`
-
-Deploy guide: `C:\Users\the10\Downloads\agent-hq-dashboard\DEPLOY.md`
-
----
-
-## 🔧 TECH STACK
-
-- **Frontend:** React 18 + Pixi.js (game-like 2D rendering)
-- **Build:** Vite (ultra-fast)
+- **Frontend:** React 18 + native Canvas 2D rendering
+- **Build:** Vite 7 + TypeScript
 - **Styling:** Tailwind CSS
-- **Hosting:** Vercel (free tier, unlimited)
-- **Real-time:** WebSocket (ready for Hermes integration)
+- **Hosting:** GitHub Pages / Vercel / Netlify (all free tiers)
+- **Planned real-time:** WebSocket feed from the Hermes daemon (see docs/)
 
----
+## Roadmap
 
-## ✨ WHAT MAKES THIS SPECIAL
-
-✓ Game-like aesthetic (not boring corporate dashboards)
-✓ Infinite zoom for both overview and detail
-✓ Futuristic neon sci-fi vibe
-✓ Direct agent communication interface
-✓ Mobile-first design
-✓ Lightning-fast (Vite + Vercel)
-✓ Fully customizable
-✓ Ready for production
-
----
-
-## 🎬 NOW: YOUR MOVE
-
-**Tell me:**
-
-1. **GitHub info:** Username? Or should I use temporary repo?
-2. **View preference:** Deploy to Vercel now, or local test first?
-3. **Any quick tweaks:** Color changes? Room renames?
-
-Then I'll get it live within 5 minutes.
-
-You'll be looking at your Agent HQ dashboard on your phone while you're at the gym. 🏋️‍♂️
-
----
-
-**Ready when you are.** Just send back: GitHub username + go/no-go on Vercel deployment.
-
-(If you don't have GitHub yet, I can walk you through signup in 2 minutes.)
+See [`docs/AGENTIC-WORKFLOW-PLAN.md`](docs/AGENTIC-WORKFLOW-PLAN.md) for the
+phased plan: Hermes daemon → first real agent → memory integration →
+multi-agent approval workflows.
