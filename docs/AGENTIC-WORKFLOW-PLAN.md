@@ -142,9 +142,10 @@ Effort estimated in **evenings** (~2–3 focused hours each).
 Types cleaned up, docs written, mock data clearly labeled as mock.
 **Accept when:** dashboard builds and deploys; this doc and `MEMORY-SYSTEM.md` exist.
 
-### Phase 1 — Hermes skeleton + live heartbeat (~3–5 evenings)
+### Phase 1 — Hermes skeleton + live heartbeat ✅ (mostly shipped)
 Node/TS daemon: agent registry, event bus, JSONL persistence, WS + REST, and a **fake heartbeat generator** emitting valid `HermesEvent`s. Dashboard drops its mock `useEffect` and renders from the WS stream. Kill switch works.
 **Accept when:** with the daemon off, dashboard shows all rooms `offline`; with it on, rooms animate from real events; restarting the daemon replays state from JSONL; `POST /kill` freezes everything.
+**Shipped:** `hermes/` daemon (registry from `agents.json`, WS + REST on 127.0.0.1:4870, demo heartbeat, JSONL audit log, `POST /tasks` with budget-cap 429, `POST /approve` stub) and `src/hooks/useHermes.ts` (auto-reconnect, mock fallback with LIVE/MOCK badge). **Still open:** JSONL state replay on restart, `POST /kill`/`/resume`.
 
 ### Phase 2 — First real agent: Learning Room or Code Lab (~4–6 evenings)
 Wire the Claude Agent SDK / headless Claude Code into the runner. One agent, real tasks, tool allowlist, token/cost tracking, retry-once, timeout.
@@ -166,9 +167,13 @@ Ads Studio (draft → human launches) and Trading Desk (paper trading + analysis
 
 ## 7. Next 3 Actions (This Week)
 
-1. **Extract the event types.** Create `src/types/events.ts` with the `HermesEvent` union from §2, and refactor `Dashboard.tsx` to consume `HermesEvent[]` instead of its inline `Message`/`CommunicationFlow` types (still fed by mock data for now). ~1 evening, zero risk, and it locks in the contract.
-2. **Scaffold the daemon.** New sibling repo/folder `hermes-daemon`: `npm init`, `ws` + a tiny HTTP server, a heartbeat loop emitting fake `agent_status`/`message` events, appending to `events.jsonl`. ~1 evening to first frame.
-3. **Connect them.** Add a `useHermesSocket()` hook to the dashboard with an `offline` fallback state; delete the mock `useEffect` behind a `VITE_USE_MOCKS` flag. When you see a room light up from a real WS frame, Phase 1 is basically done.
+Items 1–3 of the original list (event types, daemon scaffold, WS hook) are done —
+`src/types/events.ts`, `hermes/`, and `src/hooks/useHermes.ts` all exist and are
+verified end-to-end. The new next three:
+
+1. **Finish Phase 1's tail.** Add JSONL state replay on daemon restart and the `POST /kill` / `POST /resume` pair. ~1 evening.
+2. **Start Phase 2.** Wire one real agent (Learning Room) through the runner: headless Claude run per task, real `token_usage` events. This is the moment the system stops being a demo.
+3. **Set the memory conventions live.** Copy `memory/` templates into real files for the first agent and have the runner inject the digest per `docs/MEMORY-SYSTEM.md` Phase 1.
 
 ---
 

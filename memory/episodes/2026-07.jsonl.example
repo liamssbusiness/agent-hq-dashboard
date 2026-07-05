@@ -1,0 +1,3 @@
+{"_comment":"EXAMPLE FILE — template for episodes/YYYY-MM.jsonl (append-only event log, one file per month, one event per line, never edited). Placeholder data only. Real log lives at e.g. episodes/2026-07.jsonl and is gitignored."}
+{"ts":"2026-07-02T14:31:07Z","agent":"code-lab","event":"task_completed","task":"EXAMPLE: add websocket reconnect","tokens_in":48210,"tokens_out":3120,"memories_read":["f-2026-06-30-044"],"memories_written":["f-2026-07-02-091"]}
+{"ts":"2026-07-02T15:10:00Z","agent":"trading-desk","event":"memory_injected","count":6,"tokens":1430,"memories_read":["D-014","f-2026-06-30-044"],"memories_written":[]}

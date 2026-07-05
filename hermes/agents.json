@@ -1,0 +1,53 @@
+{
+  "agents": [
+    {
+      "id": "hub",
+      "name": "Central Hub",
+      "tokenBudget": 128000,
+      "dailyCostCapUsd": 2,
+      "tools": []
+    },
+    {
+      "id": "code",
+      "name": "Code Lab",
+      "tokenBudget": 128000,
+      "dailyCostCapUsd": 2,
+      "tools": []
+    },
+    {
+      "id": "ads",
+      "name": "Ads Studio",
+      "tokenBudget": 128000,
+      "dailyCostCapUsd": 2,
+      "tools": []
+    },
+    {
+      "id": "trading",
+      "name": "Trading Desk",
+      "tokenBudget": 128000,
+      "dailyCostCapUsd": 2,
+      "tools": []
+    },
+    {
+      "id": "social",
+      "name": "Social Chamber",
+      "tokenBudget": 128000,
+      "dailyCostCapUsd": 2,
+      "tools": []
+    },
+    {
+      "id": "revify",
+      "name": "Revify HQ",
+      "tokenBudget": 128000,
+      "dailyCostCapUsd": 2,
+      "tools": []
+    },
+    {
+      "id": "learning",
+      "name": "Learning Room",
+      "tokenBudget": 128000,
+      "dailyCostCapUsd": 2,
+      "tools": []
+    }
+  ]
+}

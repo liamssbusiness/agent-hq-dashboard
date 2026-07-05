@@ -6,9 +6,12 @@ communication flows, zoom/pan navigation, and per-room detail panels.
 
 **Live repo:** https://github.com/liamssbusiness/agent-hq-dashboard
 
-> Currently the dashboard renders **mock data**. The plan for wiring it to real
-> agents lives in [`docs/AGENTIC-WORKFLOW-PLAN.md`](docs/AGENTIC-WORKFLOW-PLAN.md),
-> and the agent memory design lives in [`docs/MEMORY-SYSTEM.md`](docs/MEMORY-SYSTEM.md).
+> The dashboard connects to the **Hermes daemon** ([`hermes/`](hermes/)) over
+> WebSocket and renders live agent state; when the daemon is offline it falls
+> back to built-in mock data (badge in the header shows **LIVE** vs **MOCK**).
+> Architecture: [`docs/AGENTIC-WORKFLOW-PLAN.md`](docs/AGENTIC-WORKFLOW-PLAN.md).
+> Agent memory design: [`docs/MEMORY-SYSTEM.md`](docs/MEMORY-SYSTEM.md); the
+> file conventions are scaffolded in [`memory/`](memory/).
 
 ## Rooms
 
@@ -43,6 +46,19 @@ npm run dev        # http://localhost:3000
 npm run typecheck  # TypeScript checks
 npm run build      # production build → dist/
 ```
+
+To feed the dashboard live data, run the Hermes daemon in a second terminal:
+
+```bash
+cd hermes
+npm install
+npm run demo       # simulated heartbeat on ws://localhost:4870
+```
+
+The header badge flips to **● LIVE** and rooms/flows/token counts update in
+real time. Environment knobs: `VITE_HERMES_URL` (daemon URL),
+`VITE_USE_MOCKS=1` (never connect). The shared event schema is
+[`src/types/events.ts`](src/types/events.ts).
 
 Requires Node 20.19+ (Node 22 recommended).
 

@@ -1,0 +1,17 @@
+{
+  "name": "hermes-daemon",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Hermes daemon skeleton: agent registry, event bus, JSONL persistence, WS + REST for the Agent HQ Dashboard (Phase 1 of docs/AGENTIC-WORKFLOW-PLAN.md).",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "demo": "HERMES_DEMO=1 node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

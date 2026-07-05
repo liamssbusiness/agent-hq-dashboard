@@ -1,0 +1,37 @@
+# memory/.gitignore — keep the skeleton + templates in git, exclude real memory contents.
+# Real agent memory may contain sensitive info and (per docs/MEMORY-SYSTEM.md §6) must not
+# be committed to this deploy-adjacent repo. Rule order matters: later rules win, so the
+# allow rules for structure/templates come last.
+
+# Ignore everything by default...
+*
+
+# ...but keep directories traversable so allow rules can match inside them
+!*/
+
+# Real memory contents — explicitly ignored (redundant with `*`, listed for clarity):
+#   agents/*/longterm.md, agents/*/facts.jsonl, agents/*/sessions/**
+#   shared/decisions.md, shared/facts.jsonl, shared/contacts.md, shared/conventions.md
+#   shared/inbox/**, episodes/*.jsonl, index.db
+agents/*/longterm.md
+agents/*/facts.jsonl
+agents/*/sessions/**
+shared/decisions.md
+shared/facts.jsonl
+shared/contacts.md
+shared/conventions.md
+shared/inbox/**
+episodes/*.jsonl
+
+index.db
+
+# Local scratch of any kind
+*.local.*
+
+# Structure + docs + templates stay in git (these come last so they win)
+!.gitignore
+!.gitkeep
+!README.md
+!*.example
+!*.example.*
+!*.jsonl.example

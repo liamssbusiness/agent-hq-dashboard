@@ -1,4 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
+import type { AgentMessage, AgentState, CommunicationFlow } from '../types/events';
+import { deriveFlows, useHermes } from '../hooks/useHermes';
 
 interface Room {
   id: string;
@@ -11,20 +13,6 @@ interface Room {
   status: 'idle' | 'working' | 'error';
 }
 
-interface Message {
-  from: string;
-  to: string;
-  text: string;
-  timestamp: number;
-}
-
-interface CommunicationFlow {
-  from: string;
-  to: string;
-  active: boolean;
-  messageCount: number;
-}
-
 const ROOMS: Room[] = [
   { id: 'hub', name: 'Central Hub', x: 300, y: 300, width: 120, height: 100, color: '#00d4ff', status: 'idle' },
   { id: 'code', name: 'Code Lab', x: 100, y: 100, width: 120, height: 100, color: '#00ff41', status: 'working' },
@@ -35,6 +23,21 @@ const ROOMS: Room[] = [
   { id: 'learning', name: 'Learning Room', x: 300, y: 700, width: 120, height: 100, color: '#00ff41', status: 'idle' },
 ];
 
+// Fallback data shown when the Hermes daemon is offline
+const MOCK_FLOWS: CommunicationFlow[] = [
+  { from: 'ads', to: 'hub', active: true, messageCount: 5 },
+  { from: 'hub', to: 'revify', active: true, messageCount: 3 },
+  { from: 'revify', to: 'ads', active: true, messageCount: 2 },
+  { from: 'code', to: 'hub', active: false, messageCount: 1 },
+  { from: 'trading', to: 'hub', active: true, messageCount: 4 },
+];
+
+const MOCK_MESSAGES: AgentMessage[] = [
+  { from: 'ads', to: 'hub', text: 'Campaign performance: 50 leads', ts: Date.now() - 5000 },
+  { from: 'hub', to: 'revify', text: 'Alchemy metrics updated', ts: Date.now() - 3000 },
+  { from: 'revify', to: 'ads', text: 'Scale to $10K budget', ts: Date.now() - 1000 },
+];
+
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 3;
 
@@ -43,38 +46,31 @@ const Dashboard: React.FC = () => {
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [communicationFlows, setCommunicationFlows] = useState<CommunicationFlow[]>([]);
+
+  const { connected, agents, messages } = useHermes();
 
   // Mutable refs so the render loop always sees current values without re-subscribing
   const viewRef = useRef({ zoom: 1, pan: { x: 0, y: 0 } });
-  const flowsRef = useRef<CommunicationFlow[]>([]);
-  const messagesRef = useRef<Message[]>([]);
+  const liveRef = useRef<{ connected: boolean; agents: Record<string, AgentState>; messages: AgentMessage[] }>({
+    connected: false,
+    agents: {},
+    messages: [],
+  });
   const selectedRef = useRef<string | null>(null);
   const dragRef = useRef<{ startX: number; startY: number; panX: number; panY: number; moved: boolean } | null>(null);
 
   viewRef.current = { zoom, pan };
-  flowsRef.current = communicationFlows;
-  messagesRef.current = messages;
+  liveRef.current = { connected, agents, messages };
   selectedRef.current = selectedRoom;
 
-  // Simulated agent communication (replaced by the Hermes WebSocket feed later —
-  // see docs/AGENTIC-WORKFLOW-PLAN.md)
-  useEffect(() => {
-    setCommunicationFlows([
-      { from: 'ads', to: 'hub', active: true, messageCount: 5 },
-      { from: 'hub', to: 'revify', active: true, messageCount: 3 },
-      { from: 'revify', to: 'ads', active: true, messageCount: 2 },
-      { from: 'code', to: 'hub', active: false, messageCount: 1 },
-      { from: 'trading', to: 'hub', active: true, messageCount: 4 },
-    ]);
-
-    setMessages([
-      { from: 'Ads Studio', to: 'Central Hub', text: 'Campaign performance: 50 leads', timestamp: Date.now() - 5000 },
-      { from: 'Central Hub', to: 'Revify HQ', text: 'Alchemy metrics updated', timestamp: Date.now() - 3000 },
-      { from: 'Revify HQ', to: 'Ads Studio', text: 'Scale to $10K budget', timestamp: Date.now() - 1000 },
-    ]);
-  }, []);
+  const statusOf = (roomId: string, live: typeof liveRef.current): Room['status'] => {
+    if (live.connected) {
+      const s = live.agents[roomId]?.status;
+      if (s === 'working' || s === 'error') return s;
+      return 'idle';
+    }
+    return ROOMS.find((r) => r.id === roomId)!.status;
+  };
 
   // Continuous render loop — keeps pulse animations alive and reflects zoom/pan
   useEffect(() => {
@@ -98,6 +94,8 @@ const Dashboard: React.FC = () => {
       const width = canvas.width / dpr;
       const height = canvas.height / dpr;
       const { zoom: z, pan: p } = viewRef.current;
+      const live = liveRef.current;
+      const flows = live.connected ? deriveFlows(live.messages, Date.now()) : MOCK_FLOWS;
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.fillStyle = '#0a0a0a';
@@ -110,13 +108,13 @@ const Dashboard: React.FC = () => {
 
       drawGrid(ctx, width / z + Math.abs(p.x / z), height / z + Math.abs(p.y / z));
       drawHallways(ctx);
-      drawCommunicationFlows(ctx, flowsRef.current);
-      drawRooms(ctx, selectedRef.current);
+      drawCommunicationFlows(ctx, flows);
+      drawRooms(ctx, selectedRef.current, live);
       drawLabels(ctx);
       ctx.restore();
 
       // Screen space HUD
-      drawStatsPanel(ctx, z, flowsRef.current, messagesRef.current);
+      drawStatsPanel(ctx, z, flows, live);
 
       frame = requestAnimationFrame(draw);
     };
@@ -294,13 +292,15 @@ const Dashboard: React.FC = () => {
     ctx.fill();
   };
 
-  const drawRooms = (ctx: CanvasRenderingContext2D, selected: string | null) => {
+  const drawRooms = (ctx: CanvasRenderingContext2D, selected: string | null, live: typeof liveRef.current) => {
     ROOMS.forEach((room) => {
+      const status = statusOf(room.id, live);
+
       ctx.fillStyle = room.color;
       ctx.globalAlpha = 0.1;
       ctx.fillRect(room.x, room.y, room.width, room.height);
 
-      ctx.globalAlpha = room.status === 'working' ? 0.8 : 0.4;
+      ctx.globalAlpha = status === 'working' ? 0.8 : 0.4;
       ctx.strokeStyle = room.color;
       ctx.lineWidth = 2 + Math.sin(Date.now() / 500) * 2;
       ctx.strokeRect(room.x, room.y, room.width, room.height);
@@ -313,7 +313,7 @@ const Dashboard: React.FC = () => {
       }
 
       ctx.globalAlpha = 1;
-      const statusColor = room.status === 'error' ? '#ff0000' : room.status === 'working' ? '#00ff41' : '#666666';
+      const statusColor = status === 'error' ? '#ff0000' : status === 'working' ? '#00ff41' : '#666666';
       ctx.fillStyle = statusColor;
       ctx.beginPath();
       ctx.arc(room.x + room.width - 10, room.y + 10, 5, 0, Math.PI * 2);
@@ -336,10 +336,10 @@ const Dashboard: React.FC = () => {
     ctx: CanvasRenderingContext2D,
     z: number,
     flows: CommunicationFlow[],
-    msgs: Message[]
+    live: typeof liveRef.current
   ) => {
     const panelWidth = 250;
-    const panelHeight = 120;
+    const panelHeight = 140;
     const panelX = 20;
 
     ctx.fillStyle = 'rgba(0, 20, 40, 0.95)';
@@ -354,28 +354,47 @@ const Dashboard: React.FC = () => {
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
 
-    const working = ROOMS.filter((r) => r.status === 'working').length;
+    const working = ROOMS.filter((r) => statusOf(r.id, live) === 'working').length;
+    const msgCount = live.connected ? live.messages.length : MOCK_MESSAGES.length;
     let y = 45;
     const lineHeight = 20;
     const textX = panelX + 15;
 
     ctx.fillText(`Active Agents: ${working}/${ROOMS.length}`, textX, y);
     y += lineHeight;
-    ctx.fillText(`Messages: ${msgs.length}`, textX, y);
+    ctx.fillText(`Messages: ${msgCount}`, textX, y);
     y += lineHeight;
     ctx.fillText(`Flows: ${flows.filter((f) => f.active).length}`, textX, y);
     y += lineHeight;
     ctx.fillText(`Zoom: ${(z * 100).toFixed(0)}%`, textX, y);
+    y += lineHeight;
+    ctx.fillStyle = live.connected ? '#00ff41' : '#ffa500';
+    ctx.fillText(live.connected ? '● LIVE via Hermes' : '○ MOCK — daemon offline', textX, y);
   };
 
   const selected = selectedRoom ? ROOMS.find((r) => r.id === selectedRoom) : null;
+  const selectedLive: AgentState | undefined = selected && connected ? agents[selected.id] : undefined;
+  const activeFlowCount = connected
+    ? deriveFlows(messages, Date.now()).filter((f) => f.active).length
+    : MOCK_FLOWS.filter((f) => f.active).length;
 
   return (
     <div className="w-full h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900 flex flex-col">
       {/* Header */}
-      <div className="bg-black/50 border-b border-cyan-500/20 p-4">
-        <h1 className="text-2xl font-bold text-cyan-400">Agent HQ — Multi-Agent Dashboard</h1>
-        <p className="text-cyan-300/60 text-sm">Real-time Agent Communication Network</p>
+      <div className="bg-black/50 border-b border-cyan-500/20 p-4 flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-cyan-400">Agent HQ — Multi-Agent Dashboard</h1>
+          <p className="text-cyan-300/60 text-sm">Real-time Agent Communication Network</p>
+        </div>
+        <span
+          className={
+            connected
+              ? 'text-green-400 text-sm font-mono border border-green-400/50 rounded px-3 py-1'
+              : 'text-orange-400 text-sm font-mono border border-orange-400/50 rounded px-3 py-1'
+          }
+        >
+          {connected ? '● LIVE' : '○ MOCK'}
+        </span>
       </div>
 
       {/* Canvas */}
@@ -394,16 +413,28 @@ const Dashboard: React.FC = () => {
             <h3 className="text-green-400 font-bold mb-2">{selected.name}</h3>
             <div className="text-green-300 text-sm space-y-1">
               <p>
-                Status: <span className="text-white">{selected.status}</span>
+                Status:{' '}
+                <span className="text-white">{selectedLive ? selectedLive.status : selected.status}</span>
+              </p>
+              {selectedLive?.currentTask && (
+                <p>
+                  Task: <span className="text-white">{selectedLive.currentTask}</span>
+                </p>
+              )}
+              <p>
+                Tasks queued: <span className="text-white">{selectedLive ? selectedLive.tasksQueued : 3}</span>
               </p>
               <p>
-                Tasks: <span className="text-white">3 queued</span>
+                Tokens:{' '}
+                <span className="text-white">
+                  {selectedLive
+                    ? `${selectedLive.tokensUsed.toLocaleString()} / ${selectedLive.tokenBudget.toLocaleString()}`
+                    : '42,150 / 128,000'}
+                </span>
               </p>
               <p>
-                Tokens: <span className="text-white">42,150 / 128,000</span>
-              </p>
-              <p>
-                Cost: <span className="text-white">$0.52</span>
+                Cost:{' '}
+                <span className="text-white">${selectedLive ? selectedLive.costUsd.toFixed(2) : '0.52'}</span>
               </p>
             </div>
           </div>
@@ -421,8 +452,8 @@ const Dashboard: React.FC = () => {
       {/* Footer */}
       <div className="bg-black/50 border-t border-cyan-500/20 p-3 text-xs text-cyan-300/60">
         <span>
-          {ROOMS.length} Agents • {communicationFlows.filter((f) => f.active).length} Active Flows • Mock data — see
-          docs/AGENTIC-WORKFLOW-PLAN.md
+          {ROOMS.length} Agents • {activeFlowCount} Active Flows •{' '}
+          {connected ? 'Live via Hermes daemon (hermes/)' : 'Mock data — start the daemon: cd hermes && npm run demo'}
         </span>
       </div>
     </div>
