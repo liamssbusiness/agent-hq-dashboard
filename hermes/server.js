@@ -686,13 +686,16 @@ function demoSubmitTick() {
 // Startup + graceful shutdown
 // ---------------------------------------------------------------------------
 
-server.on('error', (err) => {
-  if (err.code === 'EADDRINUSE') {
-    console.error(`[hermes] port ${PORT} is already in use (another daemon running?) — exiting`);
-    process.exit(1);
-  }
-  throw err;
-});
+// Listen errors surface on the WebSocketServer (it wraps the HTTP server).
+for (const emitter of [server, wss]) {
+  emitter.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`[hermes] port ${PORT} is already in use (another daemon running?) — exiting`);
+      process.exit(1);
+    }
+    throw err;
+  });
+}
 
 server.listen(PORT, HOST, () => {
   // Replay only after the port is bound: a second daemon on the same data dir
