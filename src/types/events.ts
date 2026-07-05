@@ -23,8 +23,32 @@ export interface AgentMessage {
   ts: number;
 }
 
+export type TaskStatus = 'queued' | 'waiting_approval' | 'running' | 'completed' | 'failed' | 'rejected';
+
+export interface TaskInfo {
+  id: string;
+  agentId: string;
+  title: string;
+  status: TaskStatus;
+  needsApproval: boolean;
+  createdAt: number;
+  updatedAt: number;
+  /** Result summary once completed/failed. */
+  summary?: string;
+}
+
 export type HermesEvent =
-  | { type: 'snapshot'; agents: AgentState[]; messages: AgentMessage[]; ts: number }
+  | {
+      type: 'snapshot';
+      agents: AgentState[];
+      messages: AgentMessage[];
+      tasks: TaskInfo[];
+      paused: boolean;
+      ts: number;
+    }
+  | { type: 'task_update'; task: TaskInfo; ts: number }
+  | { type: 'daemon_paused'; ts: number }
+  | { type: 'daemon_resumed'; ts: number }
   | { type: 'agent_status'; agentId: string; status: AgentStatus; currentTask?: string | null; ts: number }
   | { type: 'task_started'; agentId: string; taskId: string; title: string; ts: number }
   | { type: 'task_completed'; agentId: string; taskId: string; ok: boolean; summary?: string; ts: number }

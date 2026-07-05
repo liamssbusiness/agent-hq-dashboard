@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { AgentMessage, AgentState, CommunicationFlow, HermesEvent } from '../types/events';
+import type { AgentMessage, AgentState, CommunicationFlow, HermesEvent, TaskInfo } from '../types/events';
 import { HERMES_DEFAULT_URL } from '../types/events';
 
 export interface HermesState {
@@ -9,6 +9,26 @@ export interface HermesState {
   agents: Record<string, AgentState>;
   /** Rolling window of recent inter-agent messages (newest last). */
   messages: AgentMessage[];
+  /** Known tasks keyed by id (snapshot + live task_update events). */
+  tasks: Record<string, TaskInfo>;
+  /** True while the daemon's kill switch is engaged. */
+  paused: boolean;
+}
+
+/** The daemon's REST base URL, derived from the WebSocket URL. */
+export function hermesHttpBase(): string {
+  const url = (import.meta.env.VITE_HERMES_URL as string | undefined) ?? HERMES_DEFAULT_URL;
+  return url.replace(/^ws/, 'http');
+}
+
+/** POST a JSON body to the daemon; returns the parsed response (throws on network error). */
+export async function hermesPost(path: string, body: Record<string, unknown> = {}): Promise<unknown> {
+  const res = await fetch(`${hermesHttpBase()}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return res.json().catch(() => ({}));
 }
 
 const MAX_MESSAGES = 50;
@@ -26,6 +46,8 @@ export function useHermes(): HermesState {
   const [connected, setConnected] = useState(false);
   const [agents, setAgents] = useState<Record<string, AgentState>>({});
   const [messages, setMessages] = useState<AgentMessage[]>([]);
+  const [tasks, setTasks] = useState<Record<string, TaskInfo>>({});
+  const [paused, setPaused] = useState(false);
 
   useEffect(() => {
     if (import.meta.env.VITE_USE_MOCKS === '1') return;
@@ -49,6 +71,17 @@ export function useHermes(): HermesState {
         case 'snapshot':
           setAgents(Object.fromEntries(event.agents.map((a) => [a.id, a])));
           setMessages(event.messages.slice(-MAX_MESSAGES));
+          setTasks(Object.fromEntries(event.tasks.map((t) => [t.id, t])));
+          setPaused(event.paused);
+          break;
+        case 'task_update':
+          setTasks((prev) => ({ ...prev, [event.task.id]: event.task }));
+          break;
+        case 'daemon_paused':
+          setPaused(true);
+          break;
+        case 'daemon_resumed':
+          setPaused(false);
           break;
         case 'agent_status':
           patchAgent(event.agentId, {
@@ -111,7 +144,7 @@ export function useHermes(): HermesState {
     };
   }, []);
 
-  return { connected, agents, messages };
+  return { connected, agents, messages, tasks, paused };
 }
 
 /**

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { AgentMessage, AgentState, CommunicationFlow } from '../types/events';
 import { deriveFlows, useHermes } from '../hooks/useHermes';
+import OpsPanel from './OpsPanel';
 
 interface Room {
   id: string;
@@ -47,7 +48,7 @@ const Dashboard: React.FC = () => {
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
 
-  const { connected, agents, messages } = useHermes();
+  const { connected, agents, messages, tasks, paused } = useHermes();
 
   // Mutable refs so the render loop always sees current values without re-subscribing
   const viewRef = useRef({ zoom: 1, pan: { x: 0, y: 0 } });
@@ -388,12 +389,14 @@ const Dashboard: React.FC = () => {
         </div>
         <span
           className={
-            connected
-              ? 'text-green-400 text-sm font-mono border border-green-400/50 rounded px-3 py-1'
-              : 'text-orange-400 text-sm font-mono border border-orange-400/50 rounded px-3 py-1'
+            connected && paused
+              ? 'text-red-400 text-sm font-mono border border-red-400/50 rounded px-3 py-1'
+              : connected
+                ? 'text-green-400 text-sm font-mono border border-green-400/50 rounded px-3 py-1'
+                : 'text-orange-400 text-sm font-mono border border-orange-400/50 rounded px-3 py-1'
           }
         >
-          {connected ? '● LIVE' : '○ MOCK'}
+          {connected ? (paused ? '■ PAUSED' : '● LIVE') : '○ MOCK'}
         </span>
       </div>
 
@@ -439,6 +442,9 @@ const Dashboard: React.FC = () => {
             </div>
           </div>
         )}
+
+        {/* Operations panel (live mode only) */}
+        {connected && <OpsPanel agents={agents} tasks={tasks} messages={messages} paused={paused} />}
 
         {/* Controls */}
         <div className="absolute top-6 right-6 bg-black/80 border-2 border-pink-500/50 p-3 rounded space-y-2 text-sm text-pink-300 pointer-events-none">
