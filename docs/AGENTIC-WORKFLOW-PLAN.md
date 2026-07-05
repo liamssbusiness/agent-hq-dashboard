@@ -145,11 +145,12 @@ Types cleaned up, docs written, mock data clearly labeled as mock.
 ### Phase 1 — Hermes skeleton + live heartbeat ✅ (mostly shipped)
 Node/TS daemon: agent registry, event bus, JSONL persistence, WS + REST, and a **fake heartbeat generator** emitting valid `HermesEvent`s. Dashboard drops its mock `useEffect` and renders from the WS stream. Kill switch works.
 **Accept when:** with the daemon off, dashboard shows all rooms `offline`; with it on, rooms animate from real events; restarting the daemon replays state from JSONL; `POST /kill` freezes everything.
-**Shipped:** `hermes/` daemon (registry from `agents.json`, WS + REST on 127.0.0.1:4870, demo heartbeat, JSONL audit log, `POST /tasks` with budget-cap 429, `POST /approve` stub) and `src/hooks/useHermes.ts` (auto-reconnect, mock fallback with LIVE/MOCK badge). **Still open:** JSONL state replay on restart, `POST /kill`/`/resume`.
+**Shipped — all acceptance criteria met:** `hermes/` daemon (registry, WS + REST on 127.0.0.1:4870, demo heartbeat, JSONL audit log with **state replay on restart**, budget-cap 429, **`POST /kill`/`/resume` kill switch**) and `src/hooks/useHermes.ts` (auto-reconnect, mock fallback with LIVE/MOCK/PAUSED badge). Covered by `hermes/test/` (node:test) and CI.
 
-### Phase 2 — First real agent: Learning Room or Code Lab (~4–6 evenings)
+### Phase 2 — First real agent: Learning Room or Code Lab (~4–6 evenings) — core shipped
 Wire the Claude Agent SDK / headless Claude Code into the runner. One agent, real tasks, tool allowlist, token/cost tracking, retry-once, timeout.
 **Accept when:** you `POST /tasks {agent:'learning', prompt:'Summarize this week's Claude SDK changelog'}`, watch the room go `working` on the dashboard, and get a real artifact + accurate `token_usage` events. Budget cap trips correctly when set to $0.01.
+**Shipped:** full task lifecycle (`queued`/`waiting_approval` → `running` → terminal) with a dispatcher, pluggable runner (`HERMES_RUNNER=claude` spawns headless `claude -p` in per-task workspaces with 5-min timeout and real token/cost parsing; `mock` for tests/demo), memory digest injection + episode logging per the memory doc, and the dashboard ops panel (approve/reject buttons, kill switch, task list). **Still open:** exercising the `claude` runner with a real logged-in CLI on your machine, tool allowlists per agent, retry-once.
 
 ### Phase 3 — Memory integration (~3–4 evenings)
 Implement `docs/MEMORY-SYSTEM.md`: memory digest injected at run start, learnings written back at run end.

@@ -5,6 +5,7 @@
       "name": "Central Hub",
       "tokenBudget": 128000,
       "dailyCostCapUsd": 2,
+      "needsApproval": false,
       "tools": []
     },
     {
@@ -12,6 +13,7 @@
       "name": "Code Lab",
       "tokenBudget": 128000,
       "dailyCostCapUsd": 2,
+      "needsApproval": false,
       "tools": []
     },
     {
@@ -19,6 +21,7 @@
       "name": "Ads Studio",
       "tokenBudget": 128000,
       "dailyCostCapUsd": 2,
+      "needsApproval": true,
       "tools": []
     },
     {
@@ -26,6 +29,7 @@
       "name": "Trading Desk",
       "tokenBudget": 128000,
       "dailyCostCapUsd": 2,
+      "needsApproval": true,
       "tools": []
     },
     {
@@ -33,6 +37,7 @@
       "name": "Social Chamber",
       "tokenBudget": 128000,
       "dailyCostCapUsd": 2,
+      "needsApproval": true,
       "tools": []
     },
     {
@@ -40,6 +45,7 @@
       "name": "Revify HQ",
       "tokenBudget": 128000,
       "dailyCostCapUsd": 2,
+      "needsApproval": false,
       "tools": []
     },
     {
@@ -47,6 +53,7 @@
       "name": "Learning Room",
       "tokenBudget": 128000,
       "dailyCostCapUsd": 2,
+      "needsApproval": false,
       "tools": []
     }
   ]
