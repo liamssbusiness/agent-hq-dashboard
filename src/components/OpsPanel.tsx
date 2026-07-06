@@ -26,8 +26,26 @@ const STATUS_COLORS: Record<TaskStatus, string> = {
 const OpsPanel: React.FC<OpsPanelProps> = ({ agents, tasks, messages, paused }) => {
   const [open, setOpen] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [newAgent, setNewAgent] = useState('learning');
+  const [newTitle, setNewTitle] = useState('');
+  const [newPrompt, setNewPrompt] = useState('');
+  const [submitNote, setSubmitNote] = useState<string | null>(null);
 
   const nameOf = (id: string) => agents[id]?.name ?? id;
+
+  const submitTask = () =>
+    act(async () => {
+      const body: Record<string, unknown> = { agentId: newAgent, title: newTitle.trim() };
+      if (newPrompt.trim()) body.prompt = newPrompt.trim();
+      const res = (await hermesPost('/tasks', body)) as { ok?: boolean; status?: string; error?: string };
+      if (res.ok) {
+        setSubmitNote(`Submitted (${res.status ?? 'queued'})`);
+        setNewTitle('');
+        setNewPrompt('');
+      } else {
+        setSubmitNote(`Rejected: ${res.error ?? 'unknown error'}`);
+      }
+    });
 
   const act = async (fn: () => Promise<unknown>) => {
     setBusy(true);
@@ -78,6 +96,45 @@ const OpsPanel: React.FC<OpsPanelProps> = ({ agents, tasks, messages, paused }) 
         {paused ? '▶ RESUME DAEMON' : '■ KILL SWITCH'}
       </button>
       {paused && <p className="text-red-400">Daemon paused — no tasks will run until resumed.</p>}
+
+      {/* New task */}
+      <div>
+        <h4 className="text-cyan-400 font-bold mb-1">New Task</h4>
+        <div className="space-y-1">
+          <select
+            value={newAgent}
+            onChange={(e) => setNewAgent(e.target.value)}
+            className="w-full bg-black border border-cyan-500/40 text-cyan-100 rounded p-1"
+          >
+            {Object.values(agents).map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+          <input
+            value={newTitle}
+            onChange={(e) => setNewTitle(e.target.value)}
+            placeholder="Task title"
+            className="w-full bg-black border border-cyan-500/40 text-cyan-100 rounded p-1 placeholder:text-cyan-300/30"
+          />
+          <textarea
+            value={newPrompt}
+            onChange={(e) => setNewPrompt(e.target.value)}
+            placeholder="Prompt (optional — defaults to title)"
+            rows={2}
+            className="w-full bg-black border border-cyan-500/40 text-cyan-100 rounded p-1 placeholder:text-cyan-300/30"
+          />
+          <button
+            disabled={busy || !newTitle.trim()}
+            onClick={submitTask}
+            className="w-full border border-cyan-400 text-cyan-300 rounded py-1 hover:bg-cyan-500/10 disabled:opacity-40"
+          >
+            Submit Task
+          </button>
+          {submitNote && <p className="text-cyan-300/70">{submitNote}</p>}
+        </div>
+      </div>
 
       {/* Pending approvals */}
       <div>
