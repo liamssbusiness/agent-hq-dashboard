@@ -16,7 +16,7 @@
 //     memory/episodes/YYYY-MM.jsonl via appendEpisode() below.
 
 import { spawn } from 'node:child_process';
-import { readFileSync, mkdirSync, appendFileSync } from 'node:fs';
+import { readFileSync, mkdirSync, appendFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 /** Agent-id -> memory directory name under memory/agents/. */
@@ -96,6 +96,68 @@ export function appendEpisode(memoryRoot, agentId, taskId, summary) {
 }
 
 // ---------------------------------------------------------------------------
+// Memory write-back (docs/MEMORY-SYSTEM.md: agents propose, humans review)
+// ---------------------------------------------------------------------------
+
+const LEARNINGS_INSTRUCTION =
+  '\n\n---\n\nAfter your final answer, output one last line starting with "LEARNINGS:" ' +
+  'followed by a JSON array of 0-3 short strings — durable facts or lessons from this ' +
+  'task worth remembering for future tasks (use [] if nothing qualifies).';
+
+const MAX_LEARNINGS = 3;
+const MAX_LEARNING_CHARS = 300;
+
+/**
+ * Pull the LEARNINGS: line out of a run's output. Returns
+ * { learnings: string[], summary } where summary has the line removed.
+ * Defensive: malformed JSON or a missing line yields no learnings.
+ */
+export function extractLearnings(text) {
+  const raw = text ?? '';
+  const match = raw.match(/^LEARNINGS:\s*(\[.*\])\s*$/m);
+  if (!match) return { learnings: [], summary: raw.trim() };
+  const summary = raw.replace(match[0], '').trim();
+  try {
+    const arr = JSON.parse(match[1]);
+    if (!Array.isArray(arr)) return { learnings: [], summary };
+    const learnings = arr
+      .filter((l) => typeof l === 'string' && l.trim())
+      .slice(0, MAX_LEARNINGS)
+      .map((l) => l.trim().slice(0, MAX_LEARNING_CHARS));
+    return { learnings, summary };
+  } catch {
+    return { learnings: [], summary };
+  }
+}
+
+/**
+ * Drop proposed learnings into memory/shared/inbox/<taskId>.md for human/Alfred
+ * review — agents never write directly to shared memory (poisoning defense).
+ * Best-effort: failures are logged, never thrown.
+ */
+export function writeLearningsProposal(memoryRoot, agentId, taskId, learnings) {
+  if (!learnings?.length) return;
+  try {
+    const dir = path.join(memoryRoot, 'shared', 'inbox');
+    mkdirSync(dir, { recursive: true });
+    const body = [
+      '---',
+      `task: ${taskId}`,
+      `agent: ${MEMORY_DIRS[agentId] ?? agentId}`,
+      `proposed: ${new Date().toISOString()}`,
+      'status: pending-review',
+      '---',
+      '',
+      ...learnings.map((l) => `- ${l}`),
+      '',
+    ].join('\n');
+    writeFileSync(path.join(dir, `${taskId}.md`), body);
+  } catch (err) {
+    console.error('[hermes] failed to write learnings proposal:', err.message);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Mock runner
 // ---------------------------------------------------------------------------
 
@@ -158,86 +220,138 @@ function parseClaudeOutput(stdout) {
   }
 }
 
+/** Build the claude CLI argv for a task. Exported for tests. */
+export function buildClaudeArgs(prompt, agent) {
+  const args = ['-p', prompt, '--output-format', 'json'];
+  const tools = Array.isArray(agent?.tools) ? agent.tools.filter((t) => typeof t === 'string' && t.trim()) : [];
+  if (tools.length) {
+    // Least-privilege: the agent only gets the tools its registry entry grants.
+    args.push('--allowedTools', tools.join(','));
+  }
+  return args;
+}
+
 function createClaudeRunner({ dataDir, memoryRoot }) {
   return {
     kind: 'claude',
-    run(task, agent, { signal } = {}) {
-      return new Promise((resolve) => {
-        const workspace = path.join(dataDir, 'workspaces', task.id);
-        try {
-          mkdirSync(workspace, { recursive: true });
-        } catch (err) {
-          return resolve({ ok: false, summary: `Could not create workspace: ${err.message}`, tokensUsed: 0, costUsd: 0 });
-        }
-
-        let prompt = (task.prompt ?? '').trim() || task.title;
-        const memory = readLongterm(memoryRoot, agent.id);
-        if (memory) prompt = `## Your memory\n\n${memory}\n\n---\n\n${prompt}`;
-
-        // No credentials are added here — the child inherits the user's own
-        // environment and uses their existing `claude` CLI login.
-        const child = spawn('claude', ['-p', prompt, '--output-format', 'json'], {
-          cwd: workspace,
-          stdio: ['ignore', 'pipe', 'pipe'],
-        });
-
-        let stdout = '';
-        let stderr = '';
-        let timedOut = false;
-        let settled = false;
-        const done = (result) => {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timer);
-          resolve(result);
-        };
-
-        const timer = setTimeout(() => {
-          timedOut = true;
-          child.kill('SIGKILL');
-        }, CLAUDE_TIMEOUT_MS);
-        timer.unref?.();
-
-        signal?.addEventListener('abort', () => child.kill('SIGKILL'), { once: true });
-
-        child.stdout.on('data', (d) => (stdout += d));
-        child.stderr.on('data', (d) => (stderr += d));
-
-        child.on('error', (err) => {
-          done({
-            ok: false,
-            summary:
-              err.code === 'ENOENT'
-                ? 'claude CLI not found on PATH — install Claude Code and log in to use the claude runner.'
-                : `Failed to spawn claude: ${err.message}`,
-            tokensUsed: 0,
-            costUsd: 0,
-          });
-        });
-
-        child.on('close', (code) => {
-          if (timedOut) {
-            return done({ ok: false, summary: 'Run timed out after 5 minutes and was killed.', tokensUsed: 0, costUsd: 0 });
-          }
-          if (signal?.aborted) {
-            return done({ ok: false, summary: 'Aborted by kill switch.', tokensUsed: 0, costUsd: 0 });
-          }
-          const out = parseClaudeOutput(stdout);
-          if (code !== 0 || out.isError) {
-            return done({
-              ok: false,
-              summary: out.summary || tail(stderr) || `claude exited with code ${code}`,
-              tokensUsed: out.tokensUsed,
-              costUsd: out.costUsd,
-            });
-          }
-          // Parsing failure is not a task failure: exit 0 means the run
-          // finished — fall back to the stdout tail as the summary.
-          done({ ok: true, summary: out.summary || '(no output)', tokensUsed: out.tokensUsed, costUsd: out.costUsd });
-        });
-      });
+    async run(task, agent, { signal } = {}) {
+      // Retry once on transient failures (spawn hiccups, non-zero exits).
+      // Deliberate non-retries: aborts, timeouts, and a missing CLI.
+      const first = await runClaudeOnce(task, agent, { signal, dataDir, memoryRoot });
+      if (first.ok || !first.retryable || signal?.aborted) {
+        const { retryable: _r, ...result } = first;
+        return result;
+      }
+      console.warn(`[hermes] task ${task.id} failed transiently, retrying once`);
+      const second = await runClaudeOnce(task, agent, { signal, dataDir, memoryRoot });
+      const { retryable: _r2, ...result } = second;
+      // Surface cumulative spend from both attempts.
+      result.tokensUsed += first.tokensUsed;
+      result.costUsd = Math.round((result.costUsd + first.costUsd) * 10000) / 10000;
+      return result;
     },
   };
+}
+
+function runClaudeOnce(task, agent, { signal, dataDir, memoryRoot }) {
+  return new Promise((resolve) => {
+    const workspace = path.join(dataDir, 'workspaces', task.id);
+    try {
+      mkdirSync(workspace, { recursive: true });
+    } catch (err) {
+      return resolve({
+        ok: false,
+        retryable: false,
+        summary: `Could not create workspace: ${err.message}`,
+        tokensUsed: 0,
+        costUsd: 0,
+      });
+    }
+
+    let prompt = (task.prompt ?? '').trim() || task.title;
+    const memory = readLongterm(memoryRoot, agent.id);
+    if (memory) prompt = `## Your memory\n\n${memory}\n\n---\n\n${prompt}`;
+    prompt += LEARNINGS_INSTRUCTION;
+
+    // No credentials are added here — the child inherits the user's own
+    // environment and uses their existing `claude` CLI login.
+    const child = spawn('claude', buildClaudeArgs(prompt, agent), {
+      cwd: workspace,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    let stderr = '';
+    let timedOut = false;
+    let settled = false;
+    const done = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGKILL');
+    }, CLAUDE_TIMEOUT_MS);
+    timer.unref?.();
+
+    signal?.addEventListener('abort', () => child.kill('SIGKILL'), { once: true });
+
+    child.stdout.on('data', (d) => (stdout += d));
+    child.stderr.on('data', (d) => (stderr += d));
+
+    child.on('error', (err) => {
+      done({
+        ok: false,
+        // A missing CLI won't fix itself between attempts; other spawn errors might.
+        retryable: err.code !== 'ENOENT',
+        summary:
+          err.code === 'ENOENT'
+            ? 'claude CLI not found on PATH — install Claude Code and log in to use the claude runner.'
+            : `Failed to spawn claude: ${err.message}`,
+        tokensUsed: 0,
+        costUsd: 0,
+      });
+    });
+
+    child.on('close', (code) => {
+      if (timedOut) {
+        return done({
+          ok: false,
+          retryable: false,
+          summary: 'Run timed out after 5 minutes and was killed.',
+          tokensUsed: 0,
+          costUsd: 0,
+        });
+      }
+      if (signal?.aborted) {
+        return done({ ok: false, retryable: false, summary: 'Aborted by kill switch.', tokensUsed: 0, costUsd: 0 });
+      }
+      const out = parseClaudeOutput(stdout);
+      if (code !== 0 || out.isError) {
+        return done({
+          ok: false,
+          retryable: true,
+          summary: out.summary || tail(stderr) || `claude exited with code ${code}`,
+          tokensUsed: out.tokensUsed,
+          costUsd: out.costUsd,
+        });
+      }
+      // Parsing failure is not a task failure: exit 0 means the run
+      // finished — fall back to the stdout tail as the summary.
+      const { learnings, summary } = extractLearnings(out.summary || '(no output)');
+      writeLearningsProposal(memoryRoot, agent.id, task.id, learnings);
+      done({
+        ok: true,
+        retryable: false,
+        summary: summary || '(no output)',
+        tokensUsed: out.tokensUsed,
+        costUsd: out.costUsd,
+      });
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------

@@ -6,7 +6,7 @@
       "tokenBudget": 128000,
       "dailyCostCapUsd": 2,
       "needsApproval": false,
-      "tools": []
+      "tools": ["Read", "Glob", "Grep"]
     },
     {
       "id": "code",
@@ -14,7 +14,7 @@
       "tokenBudget": 128000,
       "dailyCostCapUsd": 2,
       "needsApproval": false,
-      "tools": []
+      "tools": ["Read", "Edit", "Write", "Glob", "Grep", "Bash"]
     },
     {
       "id": "ads",
@@ -22,7 +22,7 @@
       "tokenBudget": 128000,
       "dailyCostCapUsd": 2,
       "needsApproval": true,
-      "tools": []
+      "tools": ["Read", "Write", "WebSearch", "WebFetch"]
     },
     {
       "id": "trading",
@@ -30,7 +30,7 @@
       "tokenBudget": 128000,
       "dailyCostCapUsd": 2,
       "needsApproval": true,
-      "tools": []
+      "tools": ["Read", "WebSearch", "WebFetch"]
     },
     {
       "id": "social",
@@ -38,7 +38,7 @@
       "tokenBudget": 128000,
       "dailyCostCapUsd": 2,
       "needsApproval": true,
-      "tools": []
+      "tools": ["Read", "Write", "WebSearch"]
     },
     {
       "id": "revify",
@@ -46,7 +46,7 @@
       "tokenBudget": 128000,
       "dailyCostCapUsd": 2,
       "needsApproval": false,
-      "tools": []
+      "tools": ["Read", "Write", "Glob", "Grep"]
     },
     {
       "id": "learning",
@@ -54,7 +54,7 @@
       "tokenBudget": 128000,
       "dailyCostCapUsd": 2,
       "needsApproval": false,
-      "tools": []
+      "tools": ["Read", "WebSearch", "WebFetch"]
     }
   ]
 }

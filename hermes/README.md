@@ -51,6 +51,11 @@ audit-logged.
   isolated per-task workspace under `data/workspaces/<taskId>/`, 5-minute
   timeout, parses real token usage and cost from the CLI's JSON output. Uses
   your local `claude` login — the daemon never sees or stores credentials.
+  **Least privilege:** the agent's `tools` list from `agents.json` is passed
+  as `--allowedTools`, so each room only gets the tools its registry entry
+  grants. **Retry-once:** a transiently failed run (spawn hiccup, non-zero
+  exit) is retried one time; aborts, timeouts, and a missing CLI are not.
+  Spend from both attempts is reported cumulatively.
 
 **Memory hooks** (per [`docs/MEMORY-SYSTEM.md`](../docs/MEMORY-SYSTEM.md)):
 before a `claude` run the agent's `memory/agents/<dir>/longterm.md` (if any)
@@ -60,6 +65,14 @@ chars); after every successful run (mock included) an episode line
 `memory/episodes/YYYY-MM.jsonl` (created if missing). Agent → memory dir:
 hub→alfred, code→code-lab, ads→ads-studio, trading→trading-desk,
 social→social-chamber, revify→revify-hq, learning→learning-room.
+
+**Memory write-back:** every `claude` run is asked to end with a
+`LEARNINGS: [...]` line (0–3 short durable facts). Non-empty proposals are
+written to `memory/shared/inbox/<taskId>.md` with provenance frontmatter and
+`status: pending-review` — agents never write shared memory directly; you (or
+an Alfred review pass) promote accepted proposals into the real memory files.
+The line is stripped from the task summary. Best-effort and defensive: a
+missing or malformed line simply yields no proposal.
 
 ## Event schema
 
