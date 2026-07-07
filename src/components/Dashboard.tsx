@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { AgentMessage, AgentState, CommunicationFlow } from '../types/events';
 import { deriveFlows, useHermes } from '../hooks/useHermes';
 import OpsPanel from './OpsPanel';
+import { PX, THEMES, drawCorridor, drawRoomShell, drawScanlines, drawSprite, drawStarfield, drawTicker } from '../render/pixel';
 
 interface Room {
   id: string;
@@ -14,15 +15,38 @@ interface Room {
   status: 'idle' | 'working' | 'error';
 }
 
+// Station grid: 3 columns, cell 300x250 with 64px structural gaps.
+const CW = 300;
+const CH = 250;
+const GAP = 64;
+const OX = 60;
+const OY = 60;
+const cell = (col: number, row: number) => ({ x: OX + col * (CW + GAP), y: OY + row * (CH + GAP) });
+
 const ROOMS: Room[] = [
-  { id: 'hub', name: 'Central Hub', x: 300, y: 300, width: 120, height: 100, color: '#00d4ff', status: 'idle' },
-  { id: 'code', name: 'Code Lab', x: 100, y: 100, width: 120, height: 100, color: '#00ff41', status: 'working' },
-  { id: 'ads', name: 'Ads Studio', x: 500, y: 100, width: 120, height: 100, color: '#ff006e', status: 'working' },
-  { id: 'trading', name: 'Trading Desk', x: 100, y: 500, width: 120, height: 100, color: '#ffa500', status: 'idle' },
-  { id: 'social', name: 'Social Chamber', x: 500, y: 500, width: 120, height: 100, color: '#8B5CF6', status: 'idle' },
-  { id: 'revify', name: 'Revify HQ', x: 700, y: 300, width: 120, height: 100, color: '#0066ff', status: 'working' },
-  { id: 'learning', name: 'Learning Room', x: 300, y: 700, width: 120, height: 100, color: '#00ff41', status: 'idle' },
+  { id: 'code', name: 'Code Lab', ...cell(0, 0), width: CW, height: CH, color: '#00ff41', status: 'working' },
+  { id: 'learning', name: 'Learning Room', ...cell(1, 0), width: CW, height: CH, color: '#00ff41', status: 'idle' },
+  { id: 'ads', name: 'Ads Studio', ...cell(2, 0), width: CW, height: CH, color: '#ff006e', status: 'working' },
+  { id: 'trading', name: 'Trading Desk', ...cell(0, 1), width: CW, height: CH, color: '#ffa500', status: 'idle' },
+  { id: 'hub', name: 'Central Hub', ...cell(1, 1), width: CW, height: CH, color: '#00d4ff', status: 'idle' },
+  { id: 'revify', name: 'Revify HQ', ...cell(2, 1), width: CW, height: CH, color: '#0066ff', status: 'working' },
+  { id: 'social', name: 'Social Chamber', ...cell(1, 2), width: CW, height: CH, color: '#8B5CF6', status: 'idle' },
 ];
+
+// Corridor segments between adjacent rooms (door-to-door)
+const CORRIDORS: Array<[string, string]> = [
+  ['code', 'learning'],
+  ['learning', 'ads'],
+  ['trading', 'hub'],
+  ['hub', 'revify'],
+  ['code', 'trading'],
+  ['learning', 'hub'],
+  ['ads', 'revify'],
+  ['hub', 'social'],
+];
+
+const WORLD_W = OX * 2 + 3 * CW + 2 * GAP;
+const WORLD_H = OY * 2 + 3 * CH + 2 * GAP;
 
 // Fallback data shown when the Hermes daemon is offline
 const MOCK_FLOWS: CommunicationFlow[] = [
@@ -39,7 +63,10 @@ const MOCK_MESSAGES: AgentMessage[] = [
   { from: 'revify', to: 'ads', text: 'Scale to $10K budget', ts: Date.now() - 1000 },
 ];
 
-const MIN_ZOOM = 0.5;
+const MOCK_TICKER =
+  'AGENT HQ ONLINE +++ MOCK MODE — START THE HERMES DAEMON FOR LIVE FEED (cd hermes && npm run demo) +++ 7 ROOMS OPERATIONAL +++ MEMORY SYSTEM STANDING BY';
+
+const MIN_ZOOM = 0.3;
 const MAX_ZOOM = 3;
 
 const Dashboard: React.FC = () => {
@@ -59,6 +86,7 @@ const Dashboard: React.FC = () => {
   });
   const selectedRef = useRef<string | null>(null);
   const dragRef = useRef<{ startX: number; startY: number; panX: number; panY: number; moved: boolean } | null>(null);
+  const fittedRef = useRef(false);
 
   viewRef.current = { zoom, pan };
   liveRef.current = { connected, agents, messages };
@@ -73,7 +101,7 @@ const Dashboard: React.FC = () => {
     return ROOMS.find((r) => r.id === roomId)!.status;
   };
 
-  // Continuous render loop — keeps pulse animations alive and reflects zoom/pan
+  // Continuous render loop
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -86,6 +114,17 @@ const Dashboard: React.FC = () => {
       const dpr = window.devicePixelRatio || 1;
       canvas.width = canvas.offsetWidth * dpr;
       canvas.height = canvas.offsetHeight * dpr;
+      // Fit the whole station on first layout
+      if (!fittedRef.current && canvas.offsetWidth > 0) {
+        fittedRef.current = true;
+        const z = Math.min(canvas.offsetWidth / WORLD_W, (canvas.offsetHeight - 24) / WORLD_H) * 0.98;
+        const fitted = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, z));
+        setZoom(fitted);
+        setPan({
+          x: (canvas.offsetWidth - WORLD_W * fitted) / 2,
+          y: 24 + (canvas.offsetHeight - 24 - WORLD_H * fitted) / 2,
+        });
+      }
     };
     resize();
     window.addEventListener('resize', resize);
@@ -94,28 +133,74 @@ const Dashboard: React.FC = () => {
       const dpr = window.devicePixelRatio || 1;
       const width = canvas.width / dpr;
       const height = canvas.height / dpr;
+      const t = Date.now();
       const { zoom: z, pan: p } = viewRef.current;
       const live = liveRef.current;
-      const flows = live.connected ? deriveFlows(live.messages, Date.now()) : MOCK_FLOWS;
+      const flows = live.connected ? deriveFlows(live.messages, t) : MOCK_FLOWS;
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.fillStyle = '#0a0a0a';
-      ctx.fillRect(0, 0, width, height);
+      drawStarfield(ctx, width, height, t);
 
-      // World space: pan + zoom applied to the map, not the HUD
+      // World space
       ctx.save();
       ctx.translate(p.x, p.y);
       ctx.scale(z, z);
 
-      drawGrid(ctx, width / z + Math.abs(p.x / z), height / z + Math.abs(p.y / z));
-      drawHallways(ctx);
-      drawCommunicationFlows(ctx, flows);
-      drawRooms(ctx, selectedRef.current, live);
-      drawLabels(ctx);
+      // Station corridors behind the rooms
+      for (const [a, b] of CORRIDORS) {
+        const ra = ROOMS.find((r) => r.id === a)!;
+        const rb = ROOMS.find((r) => r.id === b)!;
+        drawCorridor(
+          ctx,
+          ra.x + ra.width / 2 + (rb.x > ra.x ? ra.width / 2 : rb.x < ra.x ? -ra.width / 2 : 0),
+          ra.y + ra.height / 2 + (rb.y > ra.y ? ra.height / 2 : rb.y < ra.y ? -ra.height / 2 : 0),
+          rb.x + rb.width / 2 + (ra.x > rb.x ? rb.width / 2 : ra.x < rb.x ? -rb.width / 2 : 0),
+          rb.y + rb.height / 2 + (ra.y > rb.y ? rb.height / 2 : ra.y < rb.y ? -rb.height / 2 : 0),
+        );
+      }
+
+      // Rooms: shell, themed props, agent sprite
+      ROOMS.forEach((room, i) => {
+        const status = statusOf(room.id, live);
+        const theme = THEMES[room.id];
+        drawRoomShell(ctx, room.x, room.y, room.width, room.height, theme, room.name, status, t, selectedRef.current === room.id);
+        theme.props(ctx, room.x, room.y + PX * 7, room.width, room.height - PX * 7, t);
+        drawSprite(ctx, room.x + room.width / 2, room.y + room.height - PX * 16, theme.base, t, status, i + 1);
+      });
+
+      // Active communication packets over the corridors
+      flows.forEach((flow) => {
+        if (!flow.active) return;
+        const a = ROOMS.find((r) => r.id === flow.from);
+        const b = ROOMS.find((r) => r.id === flow.to);
+        if (!a || !b) return;
+        const x1 = a.x + a.width / 2;
+        const y1 = a.y + a.height / 2;
+        const x2 = b.x + b.width / 2;
+        const y2 = b.y + b.height / 2;
+        ctx.strokeStyle = 'rgba(0, 255, 65, 0.14)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+        const tt = (t % 1600) / 1600;
+        ctx.fillStyle = 'rgba(0, 255, 65, 0.95)';
+        ctx.fillRect(x1 + (x2 - x1) * tt - 2, y1 + (y2 - y1) * tt - 2, 5, 5);
+      });
+
       ctx.restore();
 
-      // Screen space HUD
+      // Screen-space chrome
+      const tickerText = live.connected
+        ? live.messages
+            .slice(-6)
+            .map((m) => `${nameOf(m.from)} → ${nameOf(m.to)}: ${m.text}`)
+            .join('  +++  ') || 'HERMES ONLINE — AWAITING TRAFFIC'
+        : MOCK_TICKER;
+      drawTicker(ctx, width, 0, tickerText.toUpperCase(), t);
       drawStatsPanel(ctx, z, flows, live);
+      drawScanlines(ctx, width, height);
 
       frame = requestAnimationFrame(draw);
     };
@@ -140,7 +225,6 @@ const Dashboard: React.FC = () => {
       const { zoom: z, pan: p } = viewRef.current;
       const factor = e.deltaY > 0 ? 0.9 : 1.1;
       const next = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, z * factor));
-      // Zoom toward the cursor: keep the world point under the mouse fixed
       const scale = next / z;
       setPan({ x: mx - (mx - p.x) * scale, y: my - (my - p.y) * scale });
       setZoom(next);
@@ -149,6 +233,8 @@ const Dashboard: React.FC = () => {
     canvas.addEventListener('wheel', onWheel, { passive: false });
     return () => canvas.removeEventListener('wheel', onWheel);
   }, []);
+
+  const nameOf = (id: string) => ROOMS.find((r) => r.id === id)?.name ?? id;
 
   const toWorld = (clientX: number, clientY: number) => {
     const canvas = canvasRef.current!;
@@ -192,147 +278,6 @@ const Dashboard: React.FC = () => {
     setSelectedRoom(hit ? (selectedRef.current === hit.id ? null : hit.id) : null);
   };
 
-  const drawGrid = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
-    ctx.strokeStyle = 'rgba(0, 212, 255, 0.1)';
-    ctx.lineWidth = 1;
-
-    const gridSize = 50;
-    const maxX = Math.max(width, 1200);
-    const maxY = Math.max(height, 1200);
-    for (let x = 0; x < maxX; x += gridSize) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, maxY);
-      ctx.stroke();
-    }
-    for (let y = 0; y < maxY; y += gridSize) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(maxX, y);
-      ctx.stroke();
-    }
-  };
-
-  const drawHallways = (ctx: CanvasRenderingContext2D) => {
-    ctx.strokeStyle = 'rgba(0, 212, 255, 0.3)';
-    ctx.lineWidth = 3;
-
-    const hub = ROOMS.find((r) => r.id === 'hub')!;
-    ROOMS.forEach((room) => {
-      if (room.id !== 'hub') {
-        ctx.beginPath();
-        ctx.moveTo(hub.x + hub.width / 2, hub.y + hub.height / 2);
-        ctx.lineTo(room.x + room.width / 2, room.y + room.height / 2);
-        ctx.stroke();
-      }
-    });
-  };
-
-  const drawCommunicationFlows = (ctx: CanvasRenderingContext2D, flows: CommunicationFlow[]) => {
-    flows.forEach((flow) => {
-      const fromRoom = ROOMS.find((r) => r.id === flow.from);
-      const toRoom = ROOMS.find((r) => r.id === flow.to);
-      if (!fromRoom || !toRoom || !flow.active) return;
-
-      const startX = fromRoom.x + fromRoom.width / 2;
-      const startY = fromRoom.y + fromRoom.height / 2;
-      const endX = toRoom.x + toRoom.width / 2;
-      const endY = toRoom.y + toRoom.height / 2;
-
-      const gradient = ctx.createLinearGradient(startX, startY, endX, endY);
-      gradient.addColorStop(0, 'rgba(0, 255, 65, 0.5)');
-      gradient.addColorStop(1, 'rgba(0, 255, 65, 0.1)');
-
-      ctx.strokeStyle = gradient;
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(startX, startY);
-      ctx.lineTo(endX, endY);
-      ctx.stroke();
-
-      drawArrow(ctx, startX, startY, endX, endY, '#00ff41');
-
-      // Animated pulse traveling along the flow
-      const t = (Date.now() % 2000) / 2000;
-      const px = startX + (endX - startX) * t;
-      const py = startY + (endY - startY) * t;
-      ctx.fillStyle = 'rgba(0, 255, 65, 0.9)';
-      ctx.beginPath();
-      ctx.arc(px, py, 4, 0, Math.PI * 2);
-      ctx.fill();
-
-      const midX = (startX + endX) / 2;
-      const midY = (startY + endY) / 2;
-      ctx.fillStyle = '#00ff41';
-      ctx.font = 'bold 12px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText(`${flow.messageCount}`, midX, midY - 10);
-    });
-  };
-
-  const drawArrow = (
-    ctx: CanvasRenderingContext2D,
-    fromX: number,
-    fromY: number,
-    toX: number,
-    toY: number,
-    color: string
-  ) => {
-    const headlen = 15;
-    const angle = Math.atan2(toY - fromY, toX - fromX);
-
-    ctx.strokeStyle = color;
-    ctx.fillStyle = color;
-    ctx.lineWidth = 2;
-
-    ctx.beginPath();
-    ctx.moveTo(toX, toY);
-    ctx.lineTo(toX - headlen * Math.cos(angle - Math.PI / 6), toY - headlen * Math.sin(angle - Math.PI / 6));
-    ctx.lineTo(toX - headlen * Math.cos(angle + Math.PI / 6), toY - headlen * Math.sin(angle + Math.PI / 6));
-    ctx.closePath();
-    ctx.fill();
-  };
-
-  const drawRooms = (ctx: CanvasRenderingContext2D, selected: string | null, live: typeof liveRef.current) => {
-    ROOMS.forEach((room) => {
-      const status = statusOf(room.id, live);
-
-      ctx.fillStyle = room.color;
-      ctx.globalAlpha = 0.1;
-      ctx.fillRect(room.x, room.y, room.width, room.height);
-
-      ctx.globalAlpha = status === 'working' ? 0.8 : 0.4;
-      ctx.strokeStyle = room.color;
-      ctx.lineWidth = 2 + Math.sin(Date.now() / 500) * 2;
-      ctx.strokeRect(room.x, room.y, room.width, room.height);
-
-      if (selected === room.id) {
-        ctx.globalAlpha = 1;
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 3;
-        ctx.strokeRect(room.x - 5, room.y - 5, room.width + 10, room.height + 10);
-      }
-
-      ctx.globalAlpha = 1;
-      const statusColor = status === 'error' ? '#ff0000' : status === 'working' ? '#00ff41' : '#666666';
-      ctx.fillStyle = statusColor;
-      ctx.beginPath();
-      ctx.arc(room.x + room.width - 10, room.y + 10, 5, 0, Math.PI * 2);
-      ctx.fill();
-    });
-  };
-
-  const drawLabels = (ctx: CanvasRenderingContext2D) => {
-    ROOMS.forEach((room) => {
-      ctx.fillStyle = room.color;
-      ctx.font = 'bold 14px monospace';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.globalAlpha = 1;
-      ctx.fillText(room.name, room.x + room.width / 2, room.y + room.height / 2);
-    });
-  };
-
   const drawStatsPanel = (
     ctx: CanvasRenderingContext2D,
     z: number,
@@ -341,26 +286,30 @@ const Dashboard: React.FC = () => {
   ) => {
     const panelWidth = 250;
     const panelHeight = 140;
-    const panelX = 20;
+    const panelX = 16;
+    const panelY = 32;
 
-    ctx.fillStyle = 'rgba(0, 20, 40, 0.95)';
-    ctx.fillRect(panelX, 20, panelWidth, panelHeight);
-
-    ctx.strokeStyle = '#00d4ff';
+    ctx.fillStyle = 'rgba(4, 10, 22, 0.92)';
+    ctx.fillRect(panelX, panelY, panelWidth, panelHeight);
+    ctx.strokeStyle = 'rgba(0, 212, 255, 0.8)';
     ctx.lineWidth = 2;
-    ctx.strokeRect(panelX, 20, panelWidth, panelHeight);
+    ctx.strokeRect(panelX, panelY, panelWidth, panelHeight);
+    ctx.fillStyle = 'rgba(0, 212, 255, 0.15)';
+    ctx.fillRect(panelX, panelY, panelWidth, 18);
 
     ctx.fillStyle = '#00d4ff';
-    ctx.font = 'bold 12px monospace';
+    ctx.font = 'bold 11px monospace';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
+    ctx.fillText('◆ STATION STATUS', panelX + 8, panelY + 13);
 
     const working = ROOMS.filter((r) => statusOf(r.id, live) === 'working').length;
     const msgCount = live.connected ? live.messages.length : MOCK_MESSAGES.length;
-    let y = 45;
-    const lineHeight = 20;
-    const textX = panelX + 15;
+    let y = panelY + 36;
+    const lineHeight = 19;
+    const textX = panelX + 12;
 
+    ctx.font = 'bold 12px monospace';
     ctx.fillText(`Active Agents: ${working}/${ROOMS.length}`, textX, y);
     y += lineHeight;
     ctx.fillText(`Messages: ${msgCount}`, textX, y);
@@ -369,7 +318,7 @@ const Dashboard: React.FC = () => {
     y += lineHeight;
     ctx.fillText(`Zoom: ${(z * 100).toFixed(0)}%`, textX, y);
     y += lineHeight;
-    ctx.fillStyle = live.connected ? '#00ff41' : '#ffa500';
+    ctx.fillStyle = live.connected ? '#39ff6a' : '#ffa500';
     ctx.fillText(live.connected ? '● LIVE via Hermes' : '○ MOCK — daemon offline', textX, y);
   };
 
@@ -380,12 +329,12 @@ const Dashboard: React.FC = () => {
     : MOCK_FLOWS.filter((f) => f.active).length;
 
   return (
-    <div className="w-full h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900 flex flex-col">
+    <div className="w-full h-screen bg-black flex flex-col">
       {/* Header */}
-      <div className="bg-black/50 border-b border-cyan-500/20 p-4 flex items-center justify-between">
+      <div className="bg-black/70 border-b border-cyan-500/20 px-4 py-2 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-cyan-400">Agent HQ — Multi-Agent Dashboard</h1>
-          <p className="text-cyan-300/60 text-sm">Real-time Agent Communication Network</p>
+          <h1 className="text-xl font-bold text-cyan-400 font-mono tracking-widest">AGENT HQ</h1>
+          <p className="text-cyan-300/50 text-xs font-mono">MULTI-AGENT STATION — LIVE OPS</p>
         </div>
         <span
           className={
@@ -412,7 +361,7 @@ const Dashboard: React.FC = () => {
 
         {/* Info Panel */}
         {selected && (
-          <div className="absolute bottom-6 left-6 bg-black/80 border-2 border-green-400 p-4 rounded max-w-xs">
+          <div className="absolute bottom-6 left-6 bg-black/85 border-2 border-green-400 p-4 rounded max-w-xs font-mono">
             <h3 className="text-green-400 font-bold mb-2">{selected.name}</h3>
             <div className="text-green-300 text-sm space-y-1">
               <p>
@@ -446,20 +395,17 @@ const Dashboard: React.FC = () => {
         {/* Operations panel (live mode only) */}
         {connected && <OpsPanel agents={agents} tasks={tasks} messages={messages} paused={paused} />}
 
-        {/* Controls */}
-        <div className="absolute top-6 right-6 bg-black/80 border-2 border-pink-500/50 p-3 rounded space-y-2 text-sm text-pink-300 pointer-events-none">
-          <p>🖱️ Click rooms for details</p>
-          <p>✋ Drag to pan</p>
-          <p>🔍 Scroll to zoom</p>
-          <p>Zoom: {(zoom * 100).toFixed(0)}%</p>
+        {/* Controls hint */}
+        <div className="absolute top-8 right-6 bg-black/70 border border-pink-500/40 p-2 rounded space-y-1 text-xs text-pink-300/80 font-mono pointer-events-none">
+          <p>🖱️ click room · ✋ drag · 🔍 scroll</p>
         </div>
       </div>
 
       {/* Footer */}
-      <div className="bg-black/50 border-t border-cyan-500/20 p-3 text-xs text-cyan-300/60">
+      <div className="bg-black/70 border-t border-cyan-500/20 px-4 py-2 text-xs text-cyan-300/60 font-mono">
         <span>
-          {ROOMS.length} Agents • {activeFlowCount} Active Flows •{' '}
-          {connected ? 'Live via Hermes daemon (hermes/)' : 'Mock data — start the daemon: cd hermes && npm run demo'}
+          {ROOMS.length} AGENTS • {activeFlowCount} ACTIVE FLOWS •{' '}
+          {connected ? 'LIVE VIA HERMES DAEMON (hermes/)' : 'MOCK DATA — START: cd hermes && npm run demo'}
         </span>
       </div>
     </div>
