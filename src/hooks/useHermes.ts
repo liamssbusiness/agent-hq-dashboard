@@ -31,6 +31,12 @@ export async function hermesPost(path: string, body: Record<string, unknown> = {
   return res.json().catch(() => ({}));
 }
 
+/** GET a JSON resource from the daemon (throws on network error). */
+export async function hermesGet(path: string): Promise<unknown> {
+  const res = await fetch(`${hermesHttpBase()}${path}`);
+  return res.json().catch(() => ({}));
+}
+
 const MAX_MESSAGES = 50;
 const FLOW_WINDOW_MS = 30_000; // messages older than this drop out of the graph
 const FLOW_ACTIVE_MS = 10_000; // edges with traffic this recent glow as active

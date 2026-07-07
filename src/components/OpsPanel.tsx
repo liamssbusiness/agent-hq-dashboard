@@ -1,6 +1,15 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { AgentMessage, AgentState, TaskInfo, TaskStatus } from '../types/events';
-import { hermesPost } from '../hooks/useHermes';
+import { hermesGet, hermesPost } from '../hooks/useHermes';
+
+interface MemoryProposal {
+  taskId: string;
+  agent: string; // memory-dir name, e.g. "learning-room"
+  proposed: string;
+  learnings: string[];
+}
+
+const INBOX_POLL_MS = 10_000;
 
 interface OpsPanelProps {
   agents: Record<string, AgentState>;
@@ -30,8 +39,24 @@ const OpsPanel: React.FC<OpsPanelProps> = ({ agents, tasks, messages, paused }) 
   const [newTitle, setNewTitle] = useState('');
   const [newPrompt, setNewPrompt] = useState('');
   const [submitNote, setSubmitNote] = useState<string | null>(null);
+  const [inbox, setInbox] = useState<MemoryProposal[]>([]);
 
   const nameOf = (id: string) => agents[id]?.name ?? id;
+
+  const refreshInbox = useCallback(async () => {
+    try {
+      const res = (await hermesGet('/memory/inbox')) as { proposals?: MemoryProposal[] };
+      setInbox(res.proposals ?? []);
+    } catch {
+      // Daemon unreachable — badge already reflects it
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshInbox();
+    const t = window.setInterval(refreshInbox, INBOX_POLL_MS);
+    return () => window.clearInterval(t);
+  }, [refreshInbox]);
 
   const submitTask = () =>
     act(async () => {
@@ -159,6 +184,38 @@ const OpsPanel: React.FC<OpsPanelProps> = ({ agents, tasks, messages, paused }) 
                 className="flex-1 border border-red-500 text-red-400 rounded py-1 hover:bg-red-500/10 disabled:opacity-50"
               >
                 Reject
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Memory inbox — learnings proposed by agents, promoted only on your say-so */}
+      <div>
+        <h4 className="text-purple-400 font-bold mb-1">Memory Inbox ({inbox.length})</h4>
+        {inbox.length === 0 && <p className="text-cyan-300/40">No proposed learnings.</p>}
+        {inbox.map((p) => (
+          <div key={p.taskId} className="border border-purple-400/40 rounded p-2 mb-2">
+            <p className="text-purple-200 mb-1">{p.agent}</p>
+            <ul className="text-cyan-100/80 list-disc pl-4 space-y-0.5">
+              {p.learnings.map((l, i) => (
+                <li key={i}>{l}</li>
+              ))}
+            </ul>
+            <div className="flex gap-2 mt-1">
+              <button
+                disabled={busy}
+                onClick={() => act(async () => { await hermesPost('/memory/accept', { taskId: p.taskId }); await refreshInbox(); })}
+                className="flex-1 border border-green-500 text-green-400 rounded py-1 hover:bg-green-500/10 disabled:opacity-50"
+              >
+                Accept → memory
+              </button>
+              <button
+                disabled={busy}
+                onClick={() => act(async () => { await hermesPost('/memory/discard', { taskId: p.taskId }); await refreshInbox(); })}
+                className="flex-1 border border-red-500 text-red-400 rounded py-1 hover:bg-red-500/10 disabled:opacity-50"
+              >
+                Discard
               </button>
             </div>
           </div>
