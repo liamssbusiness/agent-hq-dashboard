@@ -2,7 +2,24 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { AgentMessage, AgentState, CommunicationFlow } from '../types/events';
 import { deriveFlows, useHermes } from '../hooks/useHermes';
 import OpsPanel from './OpsPanel';
-import { PX, THEMES, drawCorridor, drawRoomShell, drawScanlines, drawSprite, drawStarfield, drawTicker } from '../render/pixel';
+import {
+  PX,
+  RAIL_W,
+  THEMES,
+  computeScene,
+  drawCorridor,
+  drawDesk,
+  drawMonitorBezel,
+  drawRails,
+  drawRoomShell,
+  drawScanlines,
+  drawScreenGlass,
+  drawSprite,
+  drawStarfield,
+  drawTicker,
+  drawWall,
+  type ScreenRect,
+} from '../render/pixel';
 
 interface Room {
   id: string;
@@ -18,9 +35,9 @@ interface Room {
 // Station grid: 3 columns, cell 300x250 with 64px structural gaps.
 const CW = 300;
 const CH = 250;
-const GAP = 64;
-const OX = 60;
-const OY = 60;
+const GAP = 48;
+const OX = 24;
+const OY = 24;
 const cell = (col: number, row: number) => ({ x: OX + col * (CW + GAP), y: OY + row * (CH + GAP) });
 
 const ROOMS: Room[] = [
@@ -87,6 +104,7 @@ const Dashboard: React.FC = () => {
   const selectedRef = useRef<string | null>(null);
   const dragRef = useRef<{ startX: number; startY: number; panX: number; panY: number; moved: boolean } | null>(null);
   const fittedRef = useRef(false);
+  const screenRef = useRef<ScreenRect>({ x: 0, y: 0, w: 0, h: 0 });
 
   viewRef.current = { zoom, pan };
   liveRef.current = { connected, agents, messages };
@@ -114,15 +132,20 @@ const Dashboard: React.FC = () => {
       const dpr = window.devicePixelRatio || 1;
       canvas.width = canvas.offsetWidth * dpr;
       canvas.height = canvas.offsetHeight * dpr;
-      // Fit the whole station on first layout
+      // Fit the whole station inside the CRT screen (minus rails + ticker)
       if (!fittedRef.current && canvas.offsetWidth > 0) {
         fittedRef.current = true;
-        const z = Math.min(canvas.offsetWidth / WORLD_W, (canvas.offsetHeight - 24) / WORLD_H) * 0.98;
+        const { screen } = computeScene(canvas.offsetWidth, canvas.offsetHeight);
+        const fitX = screen.x + RAIL_W + 6;
+        const fitY = screen.y + 24;
+        const fitW = screen.w - RAIL_W * 2 - 12;
+        const fitH = screen.h - 28;
+        const z = Math.min(fitW / WORLD_W, fitH / WORLD_H) * 0.99;
         const fitted = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, z));
         setZoom(fitted);
         setPan({
-          x: (canvas.offsetWidth - WORLD_W * fitted) / 2,
-          y: 24 + (canvas.offsetHeight - 24 - WORLD_H * fitted) / 2,
+          x: fitX + (fitW - WORLD_W * fitted) / 2,
+          y: fitY + (fitH - WORLD_H * fitted) / 2,
         });
       }
     };
@@ -139,7 +162,21 @@ const Dashboard: React.FC = () => {
       const flows = live.connected ? deriveFlows(live.messages, t) : MOCK_FLOWS;
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      drawStarfield(ctx, width, height, t);
+
+      // Physical scene: wall, desk, monitor chrome
+      const { screen, deskTop, bezel } = computeScene(width, height);
+      screenRef.current = screen;
+      drawWall(ctx, width, height, t);
+      drawDesk(ctx, width, height, deskTop, bezel);
+      drawMonitorBezel(ctx, bezel, screen, t);
+
+      // Everything below renders inside the CRT screen
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(screen.x, screen.y, screen.w, screen.h);
+      ctx.clip();
+
+      drawStarfield(ctx, screen.x, screen.y, screen.w, screen.h, t);
 
       // World space
       ctx.save();
@@ -191,16 +228,33 @@ const Dashboard: React.FC = () => {
 
       ctx.restore();
 
-      // Screen-space chrome
+      // In-screen chrome: ticker, instrument rails, scanlines, glass
       const tickerText = live.connected
         ? live.messages
             .slice(-6)
             .map((m) => `${nameOf(m.from)} → ${nameOf(m.to)}: ${m.text}`)
             .join('  +++  ') || 'HERMES ONLINE — AWAITING TRAFFIC'
         : MOCK_TICKER;
-      drawTicker(ctx, width, 0, tickerText.toUpperCase(), t);
-      drawStatsPanel(ctx, z, flows, live);
-      drawScanlines(ctx, width, height);
+      drawTicker(ctx, screen.x + RAIL_W, screen.y, screen.w - RAIL_W * 2, tickerText.toUpperCase(), t);
+
+      const railAgents = ROOMS.map((r) => {
+        const a = live.connected ? live.agents[r.id] : undefined;
+        return {
+          id: r.id,
+          color: r.color,
+          frac: a ? Math.min(1, a.tokensUsed / Math.max(1, a.tokenBudget)) : 0.15 + 0.5 * ((r.id.length * 37) % 10) / 10,
+          working: statusOf(r.id, live) === 'working',
+        };
+      });
+      const totalCost = live.connected
+        ? Object.values(live.agents).reduce((s, a) => s + a.costUsd, 0)
+        : 1.42;
+      const msgs = live.connected ? live.messages.length : MOCK_MESSAGES.length;
+      drawRails(ctx, screen, railAgents, t, { msgs, cost: totalCost });
+
+      drawScanlines(ctx, screen.x, screen.y, screen.w, screen.h);
+      drawScreenGlass(ctx, screen);
+      ctx.restore(); // screen clip
 
       frame = requestAnimationFrame(draw);
     };
@@ -278,50 +332,6 @@ const Dashboard: React.FC = () => {
     setSelectedRoom(hit ? (selectedRef.current === hit.id ? null : hit.id) : null);
   };
 
-  const drawStatsPanel = (
-    ctx: CanvasRenderingContext2D,
-    z: number,
-    flows: CommunicationFlow[],
-    live: typeof liveRef.current
-  ) => {
-    const panelWidth = 250;
-    const panelHeight = 140;
-    const panelX = 16;
-    const panelY = 32;
-
-    ctx.fillStyle = 'rgba(4, 10, 22, 0.92)';
-    ctx.fillRect(panelX, panelY, panelWidth, panelHeight);
-    ctx.strokeStyle = 'rgba(0, 212, 255, 0.8)';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(panelX, panelY, panelWidth, panelHeight);
-    ctx.fillStyle = 'rgba(0, 212, 255, 0.15)';
-    ctx.fillRect(panelX, panelY, panelWidth, 18);
-
-    ctx.fillStyle = '#00d4ff';
-    ctx.font = 'bold 11px monospace';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'alphabetic';
-    ctx.fillText('◆ STATION STATUS', panelX + 8, panelY + 13);
-
-    const working = ROOMS.filter((r) => statusOf(r.id, live) === 'working').length;
-    const msgCount = live.connected ? live.messages.length : MOCK_MESSAGES.length;
-    let y = panelY + 36;
-    const lineHeight = 19;
-    const textX = panelX + 12;
-
-    ctx.font = 'bold 12px monospace';
-    ctx.fillText(`Active Agents: ${working}/${ROOMS.length}`, textX, y);
-    y += lineHeight;
-    ctx.fillText(`Messages: ${msgCount}`, textX, y);
-    y += lineHeight;
-    ctx.fillText(`Flows: ${flows.filter((f) => f.active).length}`, textX, y);
-    y += lineHeight;
-    ctx.fillText(`Zoom: ${(z * 100).toFixed(0)}%`, textX, y);
-    y += lineHeight;
-    ctx.fillStyle = live.connected ? '#39ff6a' : '#ffa500';
-    ctx.fillText(live.connected ? '● LIVE via Hermes' : '○ MOCK — daemon offline', textX, y);
-  };
-
   const selected = selectedRoom ? ROOMS.find((r) => r.id === selectedRoom) : null;
   const selectedLive: AgentState | undefined = selected && connected ? agents[selected.id] : undefined;
   const activeFlowCount = connected
@@ -395,16 +405,12 @@ const Dashboard: React.FC = () => {
         {/* Operations panel (live mode only) */}
         {connected && <OpsPanel agents={agents} tasks={tasks} messages={messages} paused={paused} />}
 
-        {/* Controls hint */}
-        <div className="absolute top-8 right-6 bg-black/70 border border-pink-500/40 p-2 rounded space-y-1 text-xs text-pink-300/80 font-mono pointer-events-none">
-          <p>🖱️ click room · ✋ drag · 🔍 scroll</p>
-        </div>
       </div>
 
       {/* Footer */}
       <div className="bg-black/70 border-t border-cyan-500/20 px-4 py-2 text-xs text-cyan-300/60 font-mono">
         <span>
-          {ROOMS.length} AGENTS • {activeFlowCount} ACTIVE FLOWS •{' '}
+          {ROOMS.length} AGENTS • {activeFlowCount} ACTIVE FLOWS • 🖱️ CLICK ROOM · ✋ DRAG · 🔍 SCROLL •{' '}
           {connected ? 'LIVE VIA HERMES DAEMON (hermes/)' : 'MOCK DATA — START: cd hermes && npm run demo'}
         </span>
       </div>

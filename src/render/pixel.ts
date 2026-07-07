@@ -26,30 +26,30 @@ function hash(seed: number): number {
 }
 
 // ---------------------------------------------------------------------------
-// Starfield + nebula (screen space)
+// Starfield + nebula (screen space, offset-aware so it can fill the CRT screen)
 // ---------------------------------------------------------------------------
 
-export function drawStarfield(ctx: CanvasRenderingContext2D, w: number, h: number, t: number) {
+export function drawStarfield(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, t: number) {
   ctx.fillStyle = '#05030f';
-  ctx.fillRect(0, 0, w, h);
+  ctx.fillRect(x, y, w, h);
 
   // Purple nebula haze
-  const neb = ctx.createRadialGradient(w * 0.8, h * 0.15, 0, w * 0.8, h * 0.15, w * 0.7);
+  const neb = ctx.createRadialGradient(x + w * 0.8, y + h * 0.15, 0, x + w * 0.8, y + h * 0.15, w * 0.7);
   neb.addColorStop(0, 'rgba(120, 60, 200, 0.10)');
   neb.addColorStop(1, 'rgba(120, 60, 200, 0)');
   ctx.fillStyle = neb;
-  ctx.fillRect(0, 0, w, h);
-  const neb2 = ctx.createRadialGradient(w * 0.1, h * 0.85, 0, w * 0.1, h * 0.85, w * 0.6);
+  ctx.fillRect(x, y, w, h);
+  const neb2 = ctx.createRadialGradient(x + w * 0.1, y + h * 0.85, 0, x + w * 0.1, y + h * 0.85, w * 0.6);
   neb2.addColorStop(0, 'rgba(60, 90, 200, 0.08)');
   neb2.addColorStop(1, 'rgba(60, 90, 200, 0)');
   ctx.fillStyle = neb2;
-  ctx.fillRect(0, 0, w, h);
+  ctx.fillRect(x, y, w, h);
 
   // Twinkling stars — deterministic positions, phase-shifted twinkle
   const count = 90;
   for (let i = 0; i < count; i++) {
-    const sx = hash(i * 2 + 1) * w;
-    const sy = hash(i * 2 + 2) * h;
+    const sx = x + hash(i * 2 + 1) * w;
+    const sy = y + hash(i * 2 + 2) * h;
     const tw = 0.35 + 0.65 * Math.abs(Math.sin(t / 900 + i * 1.7));
     const size = i % 11 === 0 ? 3 : i % 3 === 0 ? 2 : 1;
     ctx.globalAlpha = tw;
@@ -57,6 +57,297 @@ export function drawStarfield(ctx: CanvasRenderingContext2D, w: number, h: numbe
     ctx.fillRect(Math.floor(sx), Math.floor(sy), size, size);
   }
   ctx.globalAlpha = 1;
+}
+
+// ---------------------------------------------------------------------------
+// The physical scene: dark room wall, wooden desk, retro CRT monitor chrome
+// ---------------------------------------------------------------------------
+
+export interface ScreenRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Compute monitor/desk layout for a canvas size. */
+export function computeScene(w: number, h: number): { screen: ScreenRect; deskTop: number; bezel: ScreenRect } {
+  const deskH = Math.max(96, Math.min(150, h * 0.15));
+  const deskTop = h - deskH;
+  const bezel: ScreenRect = { x: 10, y: 8, w: w - 20, h: deskTop - 2 };
+  const bz = 26; // bezel thickness
+  const screen: ScreenRect = { x: bezel.x + bz, y: bezel.y + bz + 8, w: bezel.w - bz * 2, h: bezel.h - bz * 2 - 14 };
+  return { screen, deskTop, bezel };
+}
+
+/** Dark room wall behind the monitor with faint sparkles. */
+export function drawWall(ctx: CanvasRenderingContext2D, w: number, h: number, t: number) {
+  const g = ctx.createLinearGradient(0, 0, 0, h);
+  g.addColorStop(0, '#1a1030');
+  g.addColorStop(1, '#0d0818');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, h);
+  for (let i = 0; i < 26; i++) {
+    const sx = hash(i * 3 + 7) * w;
+    const sy = hash(i * 3 + 8) * h;
+    ctx.globalAlpha = 0.25 + 0.4 * Math.abs(Math.sin(t / 1400 + i));
+    ctx.fillStyle = '#c9b8ff';
+    ctx.fillRect(Math.floor(sx), Math.floor(sy), i % 5 === 0 ? 2 : 1, i % 5 === 0 ? 2 : 1);
+  }
+  ctx.globalAlpha = 1;
+}
+
+/** Wooden desk with keyboard, mouse, floppies and a coffee cup. */
+export function drawDesk(ctx: CanvasRenderingContext2D, w: number, h: number, deskTop: number, bezel: ScreenRect) {
+  const deskH = h - deskTop;
+
+  // Monitor stand (behind the desk edge)
+  const cx = w / 2;
+  ctx.fillStyle = '#c9c2ae';
+  ctx.fillRect(cx - 70, deskTop - 8, 140, 12);
+  ctx.fillStyle = '#b3ac97';
+  ctx.fillRect(cx - 96, deskTop + 2, 192, 8);
+
+  // Desk surface — wood planks
+  ctx.fillStyle = '#5a3a22';
+  ctx.fillRect(0, deskTop, w, deskH);
+  ctx.fillStyle = '#4d3019';
+  ctx.fillRect(0, deskTop, w, 4);
+  for (let i = 1; i < 4; i++) {
+    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    ctx.fillRect(0, deskTop + (deskH / 4) * i, w, 2);
+  }
+  for (let i = 0; i < 14; i++) {
+    ctx.fillStyle = 'rgba(0,0,0,0.10)';
+    ctx.fillRect(hash(90 + i) * w, deskTop + 6 + hash(91 + i) * (deskH - 10), 30 + hash(92 + i) * 60, 1);
+  }
+
+  const midY = deskTop + deskH * 0.24;
+
+  // Keyboard (centered)
+  const kw = Math.min(360, w * 0.34);
+  const kx = cx - kw / 2;
+  const kh = deskH * 0.5;
+  ctx.fillStyle = '#8f8a7a';
+  ctx.fillRect(kx - 4, midY - 2, kw + 8, kh + 6);
+  ctx.fillStyle = '#c9c2ae';
+  ctx.fillRect(kx, midY, kw, kh);
+  ctx.fillStyle = '#a8a190';
+  const rows = 4;
+  const cols = 14;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      ctx.fillRect(kx + 5 + c * ((kw - 10) / cols), midY + 4 + r * ((kh - 8) / rows), (kw - 10) / cols - 3, (kh - 8) / rows - 3);
+    }
+  }
+  ctx.fillStyle = '#c03b2e'; // red escape key
+  ctx.fillRect(kx + 5, midY + 4, (kw - 10) / cols - 3, (kh - 8) / rows - 3);
+
+  // Mouse (right of keyboard) with red trackball
+  const mx = kx + kw + Math.min(90, w * 0.06);
+  ctx.fillStyle = '#c9c2ae';
+  ctx.fillRect(mx, midY + 4, 46, kh * 0.8);
+  ctx.fillStyle = '#8f8a7a';
+  ctx.fillRect(mx, midY + 4, 46, 6);
+  ctx.fillStyle = '#c03b2e';
+  ctx.beginPath();
+  ctx.arc(mx + 23, midY + 10 + kh * 0.35, 9, 0, Math.PI * 2);
+  ctx.fill();
+  // Mouse cable up to the monitor
+  ctx.strokeStyle = '#9a927e';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(mx + 23, midY + 4);
+  ctx.quadraticCurveTo(mx + 60, deskTop - 10, bezel.x + bezel.w - 60, deskTop - 2);
+  ctx.stroke();
+
+  // Floppy disks (left), stacked
+  const fx = Math.max(14, kx - Math.min(180, w * 0.14));
+  for (let i = 0; i < 2; i++) {
+    const fy = midY + i * (kh * 0.55) - i * 4;
+    ctx.fillStyle = i ? '#15151c' : '#22222c';
+    ctx.fillRect(fx - i * 8, fy, 96, kh * 0.5);
+    ctx.fillStyle = '#e8e4d8';
+    ctx.fillRect(fx - i * 8 + 10, fy + 5, 56, kh * 0.22);
+    ctx.fillStyle = '#22222c';
+    ctx.font = 'bold 8px monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(i ? 'LOGS' : 'CREW DATA', fx - i * 8 + 13, fy + 7);
+    ctx.fillStyle = '#3b3b4a';
+    ctx.fillRect(fx - i * 8 + 66, fy + 4, 18, kh * 0.18);
+  }
+
+  // Coffee cup (right) with planet logo
+  const cupX = Math.min(w - 60, mx + 110);
+  const cupY = deskTop + deskH * 0.18;
+  ctx.fillStyle = '#efe9dd';
+  ctx.fillRect(cupX, cupY + 8, 44, deskH * 0.62);
+  ctx.fillStyle = '#d9d2c2';
+  ctx.fillRect(cupX - 3, cupY, 50, 10);
+  // Planet logo
+  ctx.fillStyle = '#3b6fd4';
+  ctx.beginPath();
+  ctx.arc(cupX + 22, cupY + 8 + deskH * 0.3, 8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#7fa4e8';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.ellipse(cupX + 22, cupY + 8 + deskH * 0.3, 13, 4, -0.35, 0, Math.PI * 2);
+  ctx.stroke();
+}
+
+/** Beige CRT bezel with brand label and power button. */
+export function drawMonitorBezel(ctx: CanvasRenderingContext2D, bezel: ScreenRect, screen: ScreenRect, t: number) {
+  // Plastic body with simple rounded feel
+  ctx.fillStyle = '#cfc8b4';
+  ctx.fillRect(bezel.x, bezel.y, bezel.w, bezel.h);
+  ctx.fillStyle = '#e2dcc8';
+  ctx.fillRect(bezel.x, bezel.y, bezel.w, 6);
+  ctx.fillRect(bezel.x, bezel.y, 6, bezel.h);
+  ctx.fillStyle = '#a89f88';
+  ctx.fillRect(bezel.x, bezel.y + bezel.h - 8, bezel.w, 8);
+  ctx.fillRect(bezel.x + bezel.w - 8, bezel.y, 8, bezel.h);
+  // Corner screw dots
+  ctx.fillStyle = '#8f8871';
+  for (const [sx, sy] of [
+    [bezel.x + 10, bezel.y + 10],
+    [bezel.x + bezel.w - 14, bezel.y + 10],
+    [bezel.x + 10, bezel.y + bezel.h - 14],
+    [bezel.x + bezel.w - 14, bezel.y + bezel.h - 14],
+  ]) {
+    ctx.fillRect(sx, sy, 4, 4);
+  }
+
+  // Brand label
+  ctx.fillStyle = '#3a3630';
+  ctx.font = 'bold 13px monospace';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('AGENT HQ', bezel.x + 22, bezel.y + 17);
+
+  // Power button + LED (top right, like the reference)
+  ctx.fillStyle = '#b3ac97';
+  ctx.fillRect(bezel.x + bezel.w - 46, bezel.y + 8, 22, 16);
+  ctx.fillStyle = '#3a3630';
+  ctx.font = 'bold 10px monospace';
+  ctx.fillText('⏻', bezel.x + bezel.w - 40, bezel.y + 17);
+  ctx.fillStyle = Math.sin(t / 1000) > -0.9 ? '#39ff6a' : '#1d5c31';
+  ctx.fillRect(bezel.x + bezel.w - 62, bezel.y + 13, 6, 6);
+
+  // Screen inset shadow ring
+  ctx.fillStyle = '#191512';
+  ctx.fillRect(screen.x - 6, screen.y - 6, screen.w + 12, screen.h + 12);
+}
+
+/** Glass vignette + phosphor sheen over the screen contents (draw last). */
+export function drawScreenGlass(ctx: CanvasRenderingContext2D, s: ScreenRect) {
+  const edge = ctx.createLinearGradient(s.x, s.y, s.x, s.y + s.h);
+  edge.addColorStop(0, 'rgba(0,0,0,0.35)');
+  edge.addColorStop(0.08, 'rgba(0,0,0,0)');
+  edge.addColorStop(0.92, 'rgba(0,0,0,0)');
+  edge.addColorStop(1, 'rgba(0,0,0,0.35)');
+  ctx.fillStyle = edge;
+  ctx.fillRect(s.x, s.y, s.w, s.h);
+  const side = ctx.createLinearGradient(s.x, s.y, s.x + s.w, s.y);
+  side.addColorStop(0, 'rgba(0,0,0,0.32)');
+  side.addColorStop(0.06, 'rgba(0,0,0,0)');
+  side.addColorStop(0.94, 'rgba(0,0,0,0)');
+  side.addColorStop(1, 'rgba(0,0,0,0.32)');
+  ctx.fillStyle = side;
+  ctx.fillRect(s.x, s.y, s.w, s.h);
+  // Faint diagonal sheen
+  const sheen = ctx.createLinearGradient(s.x, s.y, s.x + s.w * 0.5, s.y + s.h);
+  sheen.addColorStop(0, 'rgba(180,220,255,0.05)');
+  sheen.addColorStop(0.25, 'rgba(180,220,255,0)');
+  ctx.fillStyle = sheen;
+  ctx.fillRect(s.x, s.y, s.w, s.h);
+}
+
+// ---------------------------------------------------------------------------
+// In-screen instrument rails (left/right vertical strips with live gauges)
+// ---------------------------------------------------------------------------
+
+export interface RailAgent {
+  id: string;
+  color: string;
+  frac: number; // 0..1 token budget used
+  working: boolean;
+}
+
+export const RAIL_W = 46;
+
+export function drawRails(ctx: CanvasRenderingContext2D, s: ScreenRect, agents: RailAgent[], t: number, extra: { msgs: number; cost: number }) {
+  for (const side of [0, 1] as const) {
+    const rx = side === 0 ? s.x : s.x + s.w - RAIL_W;
+    ctx.fillStyle = '#0b0f1e';
+    ctx.fillRect(rx, s.y, RAIL_W, s.h);
+    ctx.fillStyle = '#1c2440';
+    ctx.fillRect(side === 0 ? rx + RAIL_W - 3 : rx, s.y, 3, s.h);
+    // Panel seams
+    for (let y = s.y + 30; y < s.y + s.h; y += 64) {
+      ctx.fillStyle = 'rgba(255,255,255,0.06)';
+      ctx.fillRect(rx + 4, y, RAIL_W - 8, 1);
+    }
+  }
+
+  // LEFT rail: per-agent token gauges
+  const lx = s.x + 8;
+  let ly = s.y + 26;
+  ctx.font = 'bold 8px monospace';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = '#5f6f9e';
+  ctx.fillText('TOKENS', lx, s.y + 10);
+  const gaugeH = Math.max(20, Math.min(44, (s.h - 60) / agents.length - 14));
+  for (const a of agents) {
+    ctx.fillStyle = '#050810';
+    ctx.fillRect(lx, ly, 12, gaugeH);
+    const fh = Math.max(2, a.frac * (gaugeH - 2));
+    ctx.fillStyle = a.color;
+    ctx.globalAlpha = 0.9;
+    ctx.fillRect(lx + 2, ly + gaugeH - 1 - fh, 8, fh);
+    ctx.globalAlpha = 1;
+    // Working LED
+    if (a.working && Math.sin(t / 260 + a.frac * 9) > -0.2) {
+      ctx.fillStyle = '#39ff6a';
+      ctx.fillRect(lx + 18, ly + 2, 4, 4);
+    }
+    ctx.fillStyle = '#5f6f9e';
+    ctx.fillText(a.id.slice(0, 4).toUpperCase(), lx + 16, ly + gaugeH - 8);
+    ly += gaugeH + 12;
+  }
+
+  // RIGHT rail: readouts + blinky column
+  const rrx = s.x + s.w - RAIL_W + 7;
+  ctx.fillStyle = '#5f6f9e';
+  ctx.fillText('COMMS', rrx, s.y + 10);
+  ctx.fillStyle = '#2bff6f';
+  ctx.font = 'bold 10px monospace';
+  ctx.fillText(String(extra.msgs).padStart(3, '0'), rrx, s.y + 24);
+  ctx.fillStyle = '#5f6f9e';
+  ctx.font = 'bold 8px monospace';
+  ctx.fillText('COST', rrx, s.y + 44);
+  ctx.fillStyle = '#ffce6b';
+  ctx.font = 'bold 10px monospace';
+  ctx.fillText(`$${extra.cost.toFixed(2)}`, rrx, s.y + 58);
+
+  // Bar meter
+  ctx.fillStyle = '#5f6f9e';
+  ctx.font = 'bold 8px monospace';
+  ctx.fillText('LOAD', rrx, s.y + 82);
+  for (let i = 0; i < 8; i++) {
+    const on = Math.sin(t / 300 + i * 0.9) > (i - 4) / 5;
+    ctx.fillStyle = on ? (i > 5 ? '#ff5a5a' : '#39ff6a') : '#11331d';
+    ctx.fillRect(rrx + i * 4, s.y + 94, 3, 8);
+  }
+
+  // Blinking diagnostic LEDs down the rail
+  for (let i = 0; i < Math.floor((s.h - 140) / 26); i++) {
+    const on = hash(200 + i + Math.floor(t / (400 + i * 60))) > 0.45;
+    ctx.fillStyle = on ? ['#39ff6a', '#2bd9ff', '#ffce6b', '#ff5a5a'][i % 4] : '#141a2e';
+    ctx.fillRect(rrx + (i % 2) * 14, s.y + 124 + i * 26, 5, 5);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -410,27 +701,32 @@ export const THEMES: Record<string, RoomTheme> = {
 // News ticker (screen space)
 // ---------------------------------------------------------------------------
 
-export function drawTicker(ctx: CanvasRenderingContext2D, w: number, y: number, text: string, t: number) {
+export function drawTicker(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, text: string, t: number) {
   const h = 20;
   ctx.fillStyle = 'rgba(2, 8, 4, 0.92)';
-  ctx.fillRect(0, y, w, h);
+  ctx.fillRect(x, y, w, h);
   ctx.fillStyle = 'rgba(0, 255, 65, 0.25)';
-  ctx.fillRect(0, y + h - 1, w, 1);
+  ctx.fillRect(x, y + h - 1, w, 1);
 
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x, y, w, h);
+  ctx.clip();
   ctx.font = 'bold 11px monospace';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = '#2bff6f';
   const tw = ctx.measureText(text).width + 80;
   const off = (t / 18) % tw;
-  ctx.fillText(text, w - off, y + h / 2 + 0.5);
-  ctx.fillText(text, w - off + tw, y + h / 2 + 0.5);
+  ctx.fillText(text, x + w - off, y + h / 2 + 0.5);
+  ctx.fillText(text, x + w - off + tw, y + h / 2 + 0.5);
+  ctx.restore();
 }
 
 /** Scanline overlay for the CRT feel (screen space, draw last). */
-export function drawScanlines(ctx: CanvasRenderingContext2D, w: number, h: number) {
-  ctx.globalAlpha = 0.06;
+export function drawScanlines(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) {
+  ctx.globalAlpha = 0.07;
   ctx.fillStyle = '#000000';
-  for (let y = 0; y < h; y += 3) ctx.fillRect(0, y, w, 1);
+  for (let sy = y; sy < y + h; sy += 3) ctx.fillRect(x, sy, w, 1);
   ctx.globalAlpha = 1;
 }
