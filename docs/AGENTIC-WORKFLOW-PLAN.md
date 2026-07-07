@@ -155,7 +155,7 @@ Wire the Claude Agent SDK / headless Claude Code into the runner. One agent, rea
 ### Phase 3 — Memory integration ✅ (shipped & validated)
 Implement `docs/MEMORY-SYSTEM.md`: memory digest injected at run start, learnings written back at run end.
 **Accept when:** task N references a fact only learned in task N−1, across a daemon restart.
-**Shipped:** digest injection at run start (validated by a real recall test), episode logging after every run, and write-back — each `claude` run is asked for 0–3 durable learnings which land in `memory/shared/inbox/<taskId>.md` with provenance frontmatter and `status: pending-review` (validated with a real run; agents never write shared memory directly — the poisoning defense from the memory doc). **Still open:** the human/Alfred review pass that promotes inbox proposals into `longterm.md`/`shared/` — until then, promote by hand (it's a file move).
+**Shipped:** digest injection at run start (validated by a real recall test), episode logging after every run, and write-back — each `claude` run is asked for 0–3 durable learnings which land in `memory/shared/inbox/<taskId>.md` with provenance frontmatter and `status: pending-review` (validated with a real run; agents never write shared memory directly — the poisoning defense from the memory doc). The review pass is in too: the dashboard's **Memory Inbox** lists pending proposals with Accept (promotes into the agent's `longterm.md` with provenance, via `POST /memory/accept`) and Discard buttons — validated end-to-end, including a learning from a real Claude run flowing task → inbox → review → long-term memory → future prompts.
 
 ### Phase 4 — Multi-agent + approval workflows (~5–8 evenings)
 Second/third agent (Revify, Social). Approval queue: `needs_approval` tasks appear in dashboard with Approve/Reject buttons wired to `POST /approve`. Hub agent routes plain-English requests to the right room.
@@ -177,9 +177,9 @@ All three previous "next actions" are done (replay + kill switch; real Learning 
 run with genuine token accounting; memory digest injection validated by a recall
 test). The new next three:
 
-1. **Live it for a week.** Run `hermes` + dashboard daily, submit real tasks to Learning Room / Code Lab from the New Task form, promote good inbox proposals into `longterm.md` by hand, and note friction — that list becomes the Phase 4 backlog.
-2. **Review pass for the inbox.** A small Alfred task (or dashboard button) that walks `memory/shared/inbox/`, lets you accept/edit/discard each proposal, and moves accepted ones into the right memory file.
-3. **Start Phase 4.** Route plain-English requests through the hub agent to the right room, and add approve-from-phone ergonomics (the ops panel already has the buttons).
+1. **Live it for a week.** Run `hermes` + dashboard daily, submit real tasks to Learning Room / Code Lab from the New Task form, review the Memory Inbox, and note friction — that list becomes the Phase 4 backlog.
+2. **Start Phase 4 routing.** A `POST /route {request}` endpoint where the hub agent reads the plain-English request and picks the room + title + prompt, then creates the task through the normal gates.
+3. **Remote access, done safely.** If you want approvals from your phone outside your LAN, put the daemon behind Tailscale (not a public port) and add the bearer-token auth noted in hermes/README before anything else.
 
 ---
 

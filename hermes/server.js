@@ -6,12 +6,21 @@
 // exactly — that file is the source of truth for the schema.
 
 import { createServer } from 'node:http';
-import { readFileSync, mkdirSync, existsSync, writeFileSync, appendFileSync } from 'node:fs';
+import {
+  readFileSync,
+  mkdirSync,
+  existsSync,
+  writeFileSync,
+  appendFileSync,
+  readdirSync,
+  unlinkSync,
+  renameSync,
+} from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
-import { createRunner, appendEpisode } from './runner.js';
+import { createRunner, appendEpisode, MEMORY_DIRS } from './runner.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -459,6 +468,105 @@ function applyReplayedEvent(ev) {
 }
 
 // ---------------------------------------------------------------------------
+// Memory inbox review (docs/MEMORY-SYSTEM.md: agents propose, humans review).
+// Proposals live in <MEMORY_ROOT>/shared/inbox/<taskId>.md (written by the
+// runner's writeLearningsProposal). Accepting promotes each learning into the
+// agent's longterm.md with provenance; discarding moves the file aside.
+// ---------------------------------------------------------------------------
+
+const INBOX_DIR = path.join(MEMORY_ROOT, 'shared', 'inbox');
+// Path-traversal defense: only known memory-dir names may be used as paths.
+const KNOWN_MEMORY_DIRS = new Set(Object.values(MEMORY_DIRS));
+
+/**
+ * Parse one inbox proposal file (frontmatter task/agent/proposed lines plus
+ * "- ..." bullets). Returns {taskId, agent, proposed, learnings} or null for
+ * anything malformed — the inbox is human-editable, so be defensive.
+ */
+function parseProposal(text) {
+  if (typeof text !== 'string') return null;
+  const lines = text.split('\n');
+  const fields = {};
+  const learnings = [];
+  for (const line of lines) {
+    const fm = line.match(/^(task|agent|proposed):\s*(.+?)\s*$/);
+    if (fm) fields[fm[1]] = fm[2];
+    else if (line.startsWith('- ')) learnings.push(line.slice(2).trim());
+  }
+  if (!fields.task || !fields.agent || learnings.length === 0) return null;
+  return { taskId: fields.task, agent: fields.agent, proposed: fields.proposed ?? '', learnings };
+}
+
+/** All well-formed pending proposals in the inbox (skips .gitkeep, subdirs, malformed files). */
+function listProposals() {
+  let entries;
+  try {
+    entries = readdirSync(INBOX_DIR, { withFileTypes: true });
+  } catch {
+    return []; // no inbox yet
+  }
+  const proposals = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
+    try {
+      const parsed = parseProposal(readFileSync(path.join(INBOX_DIR, entry.name), 'utf8'));
+      // `file` is internal (the on-disk name; stripped from GET responses).
+      if (parsed) proposals.push({ ...parsed, file: entry.name });
+    } catch (err) {
+      console.warn(`[hermes] skipping unreadable inbox file ${entry.name}: ${err.message}`);
+    }
+  }
+  return proposals;
+}
+
+/** Human-readable agent name from a memory dir ("learning-room" -> "Learning Room"). */
+function memoryDirTitle(dir) {
+  return dir
+    .split('-')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
+/**
+ * Promote a proposal: append each learning to the agent's longterm.md with
+ * provenance, then delete the inbox file. Returns {code, error} or {promoted}.
+ */
+function acceptProposal(taskId) {
+  const proposal = listProposals().find((p) => p.taskId === taskId);
+  if (!proposal) return { code: 404, error: `no pending proposal for taskId: ${taskId ?? '(missing)'}` };
+  if (!KNOWN_MEMORY_DIRS.has(proposal.agent)) {
+    return { code: 400, error: `proposal has unknown agent memory dir: ${proposal.agent}` };
+  }
+  const agentDir = path.join(MEMORY_ROOT, 'agents', proposal.agent);
+  const longterm = path.join(agentDir, 'longterm.md');
+  mkdirSync(agentDir, { recursive: true });
+  const date = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const bullets = proposal.learnings
+    .map((l) => `- [${date} | promoted from task ${taskId} | confidence: medium] ${l}`)
+    .join('\n');
+  if (existsSync(longterm)) {
+    const existing = readFileSync(longterm, 'utf8');
+    appendFileSync(longterm, (existing.endsWith('\n') || !existing ? '' : '\n') + bullets + '\n');
+  } else {
+    writeFileSync(longterm, `# ${memoryDirTitle(proposal.agent)} — Long-term Memory\n\n${bullets}\n`);
+  }
+  unlinkSync(path.join(INBOX_DIR, proposal.file));
+  audit('memory_accept', { taskId, agent: proposal.agent, count: proposal.learnings.length });
+  return { promoted: proposal.learnings.length };
+}
+
+/** Discard a proposal: move it into shared/inbox/discarded/. Returns {code, error} or {ok}. */
+function discardProposal(taskId) {
+  const proposal = listProposals().find((p) => p.taskId === taskId);
+  if (!proposal) return { code: 404, error: `no pending proposal for taskId: ${taskId ?? '(missing)'}` };
+  const discardedDir = path.join(INBOX_DIR, 'discarded');
+  mkdirSync(discardedDir, { recursive: true });
+  renameSync(path.join(INBOX_DIR, proposal.file), path.join(discardedDir, `${taskId}.md`));
+  audit('memory_discard', { taskId });
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
 // HTTP (REST) server — CORS restricted to localhost origins, never wildcard
 // ---------------------------------------------------------------------------
 
@@ -563,6 +671,32 @@ const server = createServer(async (req, res) => {
       audit('task_rejected', { taskId: task.id, agentId: task.agentId, title: task.title });
       emit({ type: 'message', from: 'hub', to: task.agentId, text: `Task rejected: ${task.title}`, ts: Date.now() });
       return sendJson(req, res, 200, { ok: true, taskId: task.id, status: task.status });
+    }
+
+    if (req.method === 'GET' && url.pathname === '/memory/inbox') {
+      const proposals = listProposals().map(({ taskId, agent, proposed, learnings }) => ({
+        taskId,
+        agent,
+        proposed,
+        learnings,
+      }));
+      return sendJson(req, res, 200, { proposals });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/memory/accept') {
+      const { body, err } = await parseJsonBody(req);
+      if (err) return sendJson(req, res, 400, { error: err });
+      const out = acceptProposal(body.taskId);
+      if (out.error) return sendJson(req, res, out.code, { error: out.error });
+      return sendJson(req, res, 200, { ok: true, promoted: out.promoted });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/memory/discard') {
+      const { body, err } = await parseJsonBody(req);
+      if (err) return sendJson(req, res, 400, { error: err });
+      const out = discardProposal(body.taskId);
+      if (out.error) return sendJson(req, res, out.code, { error: out.error });
+      return sendJson(req, res, 200, { ok: true });
     }
 
     if (req.method === 'POST' && url.pathname === '/kill') {

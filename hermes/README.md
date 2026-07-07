@@ -35,6 +35,9 @@ npm test        # node:test suite (lifecycle, approvals, kill switch, CORS, repl
 | POST | `/tasks` | `{agentId, title, prompt?}` → creates a task. Agents with `needsApproval: true` in `agents.json` (ads, social, trading) start in `waiting_approval`; others go straight to `queued`. 400 unknown agent, 429 budget cap, 409 while paused |
 | POST | `/approve` | `{taskId}` → `waiting_approval` → `queued` (audited) |
 | POST | `/reject` | `{taskId}` → `rejected`, terminal (audited) |
+| GET | `/memory/inbox` | Pending learning proposals from `memory/shared/inbox/`: `{proposals:[{taskId, agent, proposed, learnings}]}` |
+| POST | `/memory/accept` | `{taskId}` → appends each learning (with date/task/confidence provenance) to `memory/agents/<dir>/longterm.md` and deletes the inbox file. 404 unknown proposal, 400 unknown agent dir (audited) |
+| POST | `/memory/discard` | `{taskId}` → moves the proposal to `memory/shared/inbox/discarded/`. 404 unknown proposal (audited) |
 | POST | `/kill` | Kill switch: pause dispatching, agents → `offline`, running tasks → `failed` |
 | POST | `/resume` | Unpause; agents return to `idle` |
 | WS | `ws://127.0.0.1:4870` | `snapshot` on connect, then live event broadcast |
